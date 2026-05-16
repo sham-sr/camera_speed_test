@@ -12,7 +12,13 @@ DisplayUi::DisplayUi() : tft_(cfg::kPinTftCs, cfg::kPinTftDc, cfg::kPinTftRst) {
 
 void DisplayUi::backlightOn() {
   pinMode(cfg::kPinTftBl, OUTPUT);
-  analogWrite(cfg::kPinTftBl, cfg::kBacklightPwm);
+  if (cfg::kBacklightUsePwm) {
+    const uint8_t v =
+        cfg::kBacklightActiveHigh ? cfg::kBacklightPwm : static_cast<uint8_t>(255 - cfg::kBacklightPwm);
+    analogWrite(cfg::kPinTftBl, v);
+  } else {
+    digitalWrite(cfg::kPinTftBl, cfg::kBacklightActiveHigh ? HIGH : LOW);
+  }
 }
 
 void DisplayUi::formatFloat(char *buf, const size_t bufSize, const float value, const uint8_t width,
@@ -26,7 +32,9 @@ void DisplayUi::formatFloat(char *buf, const size_t bufSize, const float value, 
 }
 
 void DisplayUi::begin() {
+  SPI.begin();
   backlightOn();
+  delay(static_cast<unsigned int>(cfg::kDisplayResetSettleMs));
   tft_.init(cfg::kDisplayWidth, cfg::kDisplayHeight);
   tft_.setRotation(0);
   tft_.fillScreen(ST77XX_BLACK);

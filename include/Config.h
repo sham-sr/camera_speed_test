@@ -73,10 +73,17 @@ inline constexpr int16_t kLatencyThresholdHysteresisAdc = 8;
 inline constexpr uint16_t kDisplayWidth = 76;
 inline constexpr uint16_t kDisplayHeight = 284;
 
-// Примечание: при сдвиге изображения на модуле смотрите init/offsets в Adafruit_ST7789 под ваш PCB.
+// --- Подсветка BL (см. pins.md, пин kPinTftBl) -------------------------------
 
-// Яркость подсветки 0…255 при управлении через analogWrite на kPinTftBl.
-inline constexpr uint8_t kBacklightPwm = 220;
+// Многие модули BL стабильнее работают от постоянного HIGH/LOW, чем от ШИМ ~490 Гц на Nano:
+// при «белом экране» или мигании сначала установите kBacklightUsePwm = false.
+inline constexpr bool kBacklightUsePwm = false;
+
+// Уровень «включено»: true = HIGH включает подсветку (типично); false = активный низкий транзистор на плате.
+inline constexpr bool kBacklightActiveHigh = true;
+
+// Яркость 0…255 только если kBacklightUsePwm == true (иначе игнорируется).
+inline constexpr uint8_t kBacklightPwm = 255;
 
 // Вспомогательная задержка после аппаратного сброса дисплея перед инициализацией драйвера.
 inline constexpr unsigned long kDisplayResetSettleMs = 50UL;
