@@ -175,8 +175,10 @@ void Application::tickLatency() {
         mid - static_cast<int32_t>(cfg::kLatencyThresholdHysteresisAdc);
     const int32_t tHigh =
         mid + static_cast<int32_t>(cfg::kLatencyThresholdHysteresisAdc);
-    latThrLow_ = static_cast<uint16_t>(constrain(tLow, 0L, 1023L));
-    latThrHigh_ = static_cast<uint16_t>(constrain(tHigh, 0L, 1023L));
+    latThrLow_ = static_cast<uint16_t>(
+        constrain(tLow, 0L, static_cast<int32_t>(cfg::kAdcMaxCodeU)));
+    latThrHigh_ = static_cast<uint16_t>(
+        constrain(tHigh, 0L, static_cast<int32_t>(cfg::kAdcMaxCodeU)));
     if (latThrLow_ >= latThrHigh_) {
       // Запасной путь при инверсии или шуме — минимальный интервал порогов.
       if (latThrLow_ > 0) {

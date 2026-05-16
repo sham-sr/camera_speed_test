@@ -1,5 +1,6 @@
 #include "DisplayUi.h"
 
+#include <stdio.h>
 #include <string.h>
 
 namespace ui {
@@ -7,36 +8,18 @@ namespace ui {
 namespace {
 enum LineLayout : int16_t { kMarginX = 2, kLineStep = 9 };
 
-uint8_t resolveSt7789SpiMode() {
-  // В Adafruit_ST7789::init() в SPCR должен попасть **SPI_MODE** из SPI.h. На ATmega328 **SPI_MODE3 = 0x0C**, не число 3.
-  if (cfg::kDisplaySpiDataMode == 3) {
+uint8_t resolveSt7789SpiMode(const uint8_t cfgMode) {
+  // В Adafruit_ST7789::init() должен попасть SPI_MODE0 / SPI_MODE3 из SPI.h, не «сырое» число 3.
+  if (cfgMode == 3) {
     return SPI_MODE3;
   }
   return SPI_MODE0;
 }
 
 void tuneSpiAfterBegin() {
-#if defined(__AVR__)
-  if (!cfg::kDisplaySpiSlowAvr) {
-    return;
-  }
-  switch (cfg::kDisplayAvrSpiDivider) {
-    case 16:
-      SPI.setClockDivider(SPI_CLOCK_DIV16);
-      break;
-    case 32:
-      SPI.setClockDivider(SPI_CLOCK_DIV32);
-      break;
-    case 64:
-      SPI.setClockDivider(SPI_CLOCK_DIV64);
-      break;
-    case 128:
-      SPI.setClockDivider(SPI_CLOCK_DIV128);
-      break;
-    default:
-      SPI.setClockDivider(SPI_CLOCK_DIV32);
-      break;
-  }
+#if defined(ARDUINO_ARCH_STM32)
+  // STM32: частоту SPI задаёт ядро при begin/транзакциях; при необходимости усильте здесь (см. даташит TFT).
+  (void)0;
 #endif
 }
 }  // namespace
@@ -67,16 +50,57 @@ void DisplayUi::backlightSet(const bool on) {
   }
 }
 
-void DisplayUi::initDisplayHardware() {
+void DisplayUi::initDisplayHardware(const uint8_t cfgSpiMode, const uint8_t rotation,
+                                    const bool invertColors) {
   SPI.begin();
   tuneSpiAfterBegin();
   const uint16_t iw = cfg::kDisplayInitNative240x320 ? 240U : cfg::kDisplayWidth;
   const uint16_t ih = cfg::kDisplayInitNative240x320 ? 320U : cfg::kDisplayHeight;
-  tft_.init(iw, ih, resolveSt7789SpiMode());
-  tft_.setRotation(cfg::kDisplayRotation & 3U);
-  if (cfg::kDisplayInvertColors) {
-    tft_.invertDisplay(true);
+  tft_.init(iw, ih, resolveSt7789SpiMode(cfgSpiMode));
+  tft_.setRotation(rotation & 3U);
+  tft_.invertDisplay(invertColors);
+}
+
+void DisplayUi::runBootProfileSweep() {
+  struct Profile {
+    uint8_t cfgMode;
+    bool invert;
+    uint8_t rotation;
+    const __FlashStringHelper *name;
+  };
+
+  static const Profile kProfiles[] = {
+      {0, false, 0, F("CFG1 M0 I0 R0")}, {0, true, 0, F("CFG2 M0 I1 R0")},
+      {3, false, 0, F("CFG3 M3 I0 R0")}, {3, true, 0, F("CFG4 M3 I1 R0")},
+      {0, true, 1, F("CFG5 M0 I1 R1")},  {3, true, 1, F("CFG6 M3 I1 R1")},
+  };
+
+  Serial.println(F("Profile sweep start: смотрите экран, где видно текст CFGx."));
+  for (const Profile &p : kProfiles) {
+    Serial.print(F("Try "));
+    Serial.println(p.name);
+    initDisplayHardware(p.cfgMode, p.rotation, p.invert);
+
+    tft_.fillScreen(ST77XX_BLACK);
+    tft_.setTextWrap(true);
+    tft_.setTextSize(1);
+    tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    tft_.setCursor(2, 4);
+    tft_.println(F("ST7789 test"));
+    tft_.println(p.name);
+    tft_.println(F("If visible:"));
+    tft_.println(F("note CFGx"));
+    tft_.println(F("then keep"));
+
+    delay(static_cast<unsigned int>(cfg::kDisplayProfileStepMs));
+    tft_.fillScreen(ST77XX_RED);
+    delay(220);
+    tft_.fillScreen(ST77XX_GREEN);
+    delay(220);
+    tft_.fillScreen(ST77XX_BLUE);
+    delay(220);
   }
+  Serial.println(F("Profile sweep done."));
 }
 
 void DisplayUi::probeBacklightPin() {
@@ -114,14 +138,18 @@ void DisplayUi::runBootSelfTest() {
   Serial.print(F("SPI request cfg kDisplaySpiDataMode="));
   Serial.print(cfg::kDisplaySpiDataMode);
   Serial.print(F(" -> Adafruit mode 0x"));
-  Serial.println(resolveSt7789SpiMode(), HEX);
+  Serial.println(resolveSt7789SpiMode(cfg::kDisplaySpiDataMode), HEX);
   Serial.println(F("Инициализация матрицы; в конце самотеста по умолчанию без мигания BL."));
 
   backlightOn();
   delay(static_cast<unsigned int>(cfg::kDisplayResetSettleMs));
 
+  if (cfg::kDisplayBootProfileSweep) {
+    runBootProfileSweep();
+  }
+
   Serial.println(F("Init SPI/display..."));
-  initDisplayHardware();
+  initDisplayHardware(cfg::kDisplaySpiDataMode, cfg::kDisplayRotation, cfg::kDisplayInvertColors);
   if (cfg::kDisplayInvertColors) {
     Serial.println(F("invertDisplay(true)"));
   } else {
@@ -171,8 +199,8 @@ void DisplayUi::runBootSelfTest() {
 
   Serial.println(F("Interpret:"));
   Serial.println(F("- Видны смены BLACK/RED/GREEN/BLUE: матрица и SPI в целом работают."));
-  Serial.println(F("- Нет цветов, только белый экран: чаще всего нет SPI (MOSI D11 SCK D13 CS D10 DC D8 RST D9 GND)."));
-  Serial.println(F("- Поменяйте kDisplaySpiDataMode 0 или 3 (=SPI_MODE3) и kDisplayAvrSpiDivider 64 (медленнее)."));
+  Serial.println(F("- Нет цветов, только белый: нет SPI (MOSI PA7 SCK PA5 CS PA4 DC PA1 RST PB0 GND 3V3)."));
+  Serial.println(F("- Поменяйте kDisplaySpiDataMode 0 или 3 (=SPI_MODE3), проверьте проводку SPI."));
   Serial.println(F("- Всё «белое» после fill BLACK: попробуйте kDisplayInvertColors=true (инверсия стекла)."));
   Serial.println(F("- kDisplayRotation 1..3 если картинка смещена/повёрнута."));
   Serial.println(F("- Картинка есть: при узком стекле можно kDisplayInitNative240x320=false."));
@@ -185,28 +213,37 @@ void DisplayUi::formatFloat(char *buf, const size_t bufSize, const float value, 
     return;
   }
   memset(buf, 0, bufSize);
+#if defined(__AVR__)
   dtostrf(static_cast<double>(value), static_cast<int>(width), static_cast<int>(prec), buf);
+#else
+  (void)snprintf(buf, bufSize, "%*.*f", static_cast<int>(width), static_cast<int>(prec),
+                 static_cast<double>(value));
+#endif
   buf[bufSize - 1U] = '\0';
 }
 
 void DisplayUi::begin() {
   if (cfg::kDisplayBootSelfTest) {
     runBootSelfTest();
+    SPI.begin();
+    tuneSpiAfterBegin();
   } else {
     backlightOn();
     delay(static_cast<unsigned int>(cfg::kDisplayResetSettleMs));
-    initDisplayHardware();
+    initDisplayHardware(cfg::kDisplaySpiDataMode, cfg::kDisplayRotation, cfg::kDisplayInvertColors);
     tft_.fillScreen(ST77XX_BLACK);
   }
 
-  tft_.setTextColor(ST77XX_WHITE);
+  // Один аргумент setTextColor(c) в Adafruit_GFX задаёт textcolor = textbgcolor = c: при белом
+  // фоне после заливки белым символы не видны (дырки в глифе не рисуются, если bg == color).
+  tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft_.setTextSize(1);
   tft_.setTextWrap(true);
 }
 
 void DisplayUi::showMainMenu() {
   tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
+  tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft_.setTextSize(1);
   int16_t y = 4;
   tft_.setCursor(kMarginX, y);
@@ -248,7 +285,7 @@ void DisplayUi::showCalibrationScreen(const uint8_t phaseIndex, const uint8_t ph
   formatFloat(bufAvg, sizeof(bufAvg), avgV, 4, 2);
 
   tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
+  tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft_.setTextSize(1);
   int16_t y = 4;
   tft_.setCursor(kMarginX, y);
@@ -277,7 +314,7 @@ void DisplayUi::showCalibrationScreen(const uint8_t phaseIndex, const uint8_t ph
 
 void DisplayUi::showCalibrationFinished() {
   tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
+  tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft_.setTextSize(1);
   int16_t y = 4;
   tft_.setCursor(kMarginX, y);
@@ -292,7 +329,7 @@ void DisplayUi::showCalibrationFinished() {
 
 void DisplayUi::showLatencyPreparing() {
   tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
+  tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft_.setTextSize(1);
   int16_t y = 4;
   tft_.setCursor(kMarginX, y);
@@ -305,7 +342,7 @@ void DisplayUi::showLatencyPreparing() {
 void DisplayUi::showLatencyLive(const unsigned long elapsedMs, const unsigned long totalMs,
                                 const uint16_t samples) {
   tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
+  tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft_.setTextSize(1);
   int16_t y = 4;
   tft_.setCursor(kMarginX, y);
@@ -337,7 +374,7 @@ void DisplayUi::showLatencyResult(const float minMs, const float maxMs, const fl
   formatFloat(b3, sizeof(b3), avgMs, 5, 2);
 
   tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
+  tft_.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft_.setTextSize(1);
   int16_t y = 4;
   tft_.setCursor(kMarginX, y);

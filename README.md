@@ -1,14 +1,15 @@
 # camera_speed_test
 
-Прошивка для **Arduino Nano** (PlatformIO): измерение задержки в цепочке **светодиод → фотоприёмник** и **калибровка уровней АЦП** с выводом на **ST7789**. Интерфейс на экране — **английский** (компактные строки под узкий дисплей). Подробная **распиновка** — в [`pins.md`](pins.md).
+Прошивка для **STM32F103C8 «Blue Pill»** (PlatformIO, Arduino‑ядро STM32): измерение задержки в цепочке **светодиод → фотоприёмник** и **калибровка уровней АЦП** с выводом на **ST7789**. Интерфейс на экране — **английский** (компактные строки под узкий дисплей). Подробная **распиновка** — в [`pins.md`](pins.md).
 
 ## Сборка и прошивка
 
 ```bash
-pio run -t upload
+pio run -e bluepill_f103c8
+pio run -e bluepill_f103c8 -t upload
 ```
 
-Параметры порта и скорость — в [`platformio.ini`](platformio.ini).
+Прошивка по умолчанию — **ST‑Link** (`upload_protocol` в [`platformio.ini`](platformio.ini)). **Serial Monitor** обычно на **USART2** (**PA2** TX / **PA3** RX) через USB‑UART, **115200** бод.
 
 ## Дисплей ST7789P3 76×284 (2.25")
 
@@ -23,14 +24,15 @@ pio run -t upload
 
 ## Отладка дисплея (самотест при старте)
 
-По умолчанию **`kDisplayBootSelfTest = true`**: для 76×284 задано **`kDisplayInitNative240x320 = false`** (совпадает с [PR #3769](https://github.com/Bodmer/TFT_eSPI/pull/3769)). Режим SPI **`kDisplaySpiDataMode`**: **`0`** → `SPI_MODE0`, **`3`** → `SPI_MODE3` (на AVR это **0x0C**; число 3 без маппинга в Adafruit давало бы неверную фазу такта). Мигание BL в конце самотеста — **`kDisplaySelfTestBlProbeAtEnd`**. Делитель SPI — **`kDisplayAvrSpiDivider`** (32 или 64). Если **BL модуля на GND** — **`kBacklightHardwiredToGnd = true`**, **D6 не к BL**. Если **весь экран равномерно белый** — сначала проводка **MOSI D11, SCK D13, CS D10, DC D8, RST D9, GND 3V3** (должно совпадать с `kPinTftDc` / `kPinTftRst` в `Config.h`), затем **`kDisplaySpiDataMode = 3`**, **`kDisplayAvrSpiDivider = 64`**, **`kDisplayInvertColors = true`**.
+По умолчанию **`kDisplayBootSelfTest = true`**: для 76×284 задано **`kDisplayInitNative240x320 = false`** (совпадает с [PR #3769](https://github.com/Bodmer/TFT_eSPI/pull/3769)). Режим SPI **`kDisplaySpiDataMode`**: **`0`** → `SPI_MODE0`, **`3`** → `SPI_MODE3` (в коде число **3** маппится в `SPI_MODE3`, а не передаётся «как есть» в драйвер). Мигание BL в конце самотеста — **`kDisplaySelfTestBlProbeAtEnd`**. Если **BL модуля на GND** — **`kBacklightHardwiredToGnd = true`**, не вешать линию BL на пин MCU. Если **весь экран равномерно белый** — проверьте **MOSI PA7, SCK PA5, CS PA4, DC PA1, RST PB0, GND, 3.3 V** (см. `pins.md` и `kPinTft*` в `Config.h`), затем **`kDisplaySpiDataMode = 3`**, **`kDisplayInvertColors = true`**.
 
 Откройте **Serial Monitor** на **115200**. Когда дисплей заработает, поставьте **`kDisplayBootSelfTest = false`**. Для «альбомной» ориентации см. issue #3804 (`TFT_WIDTH`/`TFT_HEIGHT` и `rotation`) — у нас: **`kDisplayRotation`** в `Config.h`.
 
 ## Стек
 
-- **MCU:** ATmega328P (Nano)
-- **Дисплей:** ST7789 SPI (Adafruit ST7735/ST7789 + GFX)
+- **MCU:** STM32F103C8 («Blue Pill»)
+- **АЦП:** 12 бит (`analogReadResolution(12)` в `PhotoSensor::begin`), шкала **0…4095**, `kAdcVrefVolts` по умолчанию **3.3 В**
+- **Дисплей:** ST7789 SPI (Adafruit ST7735/ST7789 + GFX), аппаратный **SPI1** (PA5/PA7)
 - **Настройки:** `include/Config.h` (тайминги, пины, размер экрана)
 
 ---
@@ -41,9 +43,9 @@ pio run -t upload
 
 **Железо в коде:**
 
-- **Свет** — биколорный LED (красный / синий / погашен), два вывода МК.
-- **Приём** — **A1**: по `pins.md` — **фототранзистор** с подтяжкой к 5 В: темно — **выше** код АЦП, ярче — **ниже** код.
-- **Кнопка** — **D2**, `INPUT_PULLUP`.
+- **Свет** — биколорный LED (красный / синий / погашен), два вывода МК (**PB6** / **PB7**).
+- **Приём** — **PA0**: по `pins.md` — **фототранзистор** с подтяжкой к **3.3 В** (не 5 В): темно — **выше** код АЦП, ярче — **ниже** код.
+- **Кнопка** — **PB12**, `INPUT_PULLUP`.
 
 ---
 
@@ -61,7 +63,7 @@ pio run -t upload
 
 ## Калибровка (ADC, красный / синий)
 
-**Цель:** показать по каждой фазе **Min / Max / Average напряжения** на входе АЦП (пересчёт из кода при `kAdcVrefVolts` = 5 В), пока горит то **красный**, то **синий** канал LED.
+**Цель:** показать по каждой фазе **Min / Max / Average напряжения** на входе АЦП (пересчёт из кода при `kAdcVrefVolts`, по умолчанию **3.3 В**), пока горит то **красный**, то **синий** канал LED.
 
 Важно: в текущей версии результаты калибровки **идут только на экран**; режим задержки **не** подхватывает сохранённые пороги из этой калибровки — пороги для замера строятся **заново** в коротком прогреве (см. ниже).
 

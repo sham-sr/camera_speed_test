@@ -3,7 +3,12 @@
 namespace hw {
 
 void PhotoSensor::begin() {
+#if defined(INPUT_ANALOG)
+  pinMode(cfg::kPinPhotoAdc, INPUT_ANALOG);
+#else
   pinMode(cfg::kPinPhotoAdc, INPUT);
+#endif
+  analogReadResolution(12);
 }
 
 uint16_t PhotoSensor::readCode() const { return analogRead(cfg::kPinPhotoAdc); }
@@ -16,7 +21,7 @@ void PhotoSensor::resetStats(AdcStats *s) {
   if (s == nullptr) {
     return;
   }
-  s->minCode = 1023;
+  s->minCode = cfg::kAdcMaxCodeU;
   s->maxCode = 0;
   s->sumCount = 0;
   s->sumCodes = 0;
