@@ -10,6 +10,23 @@ pio run -t upload
 
 Параметры порта и скорость — в [`platformio.ini`](platformio.ini).
 
+## Дисплей ST7789P3 76×284 (2.25")
+
+Этот модуль обсуждается в сообществе TFT_eSPI:
+
+- [PR #3769 — поддержка 76×284, смещения col **82** / row **18**](https://github.com/Bodmer/TFT_eSPI/pull/3769)  
+- [Issue #3804 — настройка, ориентация, инверсия цветов](https://github.com/Bodmer/TFT_eSPI/issues/3804)  
+
+В **этом проекте (Adafruit)** для 76×284 используйте **`kDisplayInitNative240x320 = false`**: тогда `init(76,284)` задаёт те же логические смещения, что и в PR. Режим **240×320 с нулевым смещением** на таком стекле часто даёт пустой/не тот участок памяти.
+
+Пример альтернативы на ESP8266 — репозиторий [atoomnetmarc/ST7789-76x284](https://github.com/atoomnetmarc/ST7789-76x284) из PR.
+
+## Отладка дисплея (самотест при старте)
+
+По умолчанию **`kDisplayBootSelfTest = true`**: для 76×284 задано **`kDisplayInitNative240x320 = false`** (совпадает с [PR #3769](https://github.com/Bodmer/TFT_eSPI/pull/3769)). Режим SPI **`kDisplaySpiDataMode`**: **`0`** → `SPI_MODE0`, **`3`** → `SPI_MODE3` (на AVR это **0x0C**; число 3 без маппинга в Adafruit давало бы неверную фазу такта). Мигание BL в конце самотеста — **`kDisplaySelfTestBlProbeAtEnd`**. Делитель SPI — **`kDisplayAvrSpiDivider`** (32 или 64). Если **BL модуля на GND** — **`kBacklightHardwiredToGnd = true`**, **D6 не к BL**. Если **весь экран равномерно белый** — сначала проводка **MOSI D11, SCK D13, CS D10, DC D8, RST D9, GND 3V3** (должно совпадать с `kPinTftDc` / `kPinTftRst` в `Config.h`), затем **`kDisplaySpiDataMode = 3`**, **`kDisplayAvrSpiDivider = 64`**, **`kDisplayInvertColors = true`**.
+
+Откройте **Serial Monitor** на **115200**. Когда дисплей заработает, поставьте **`kDisplayBootSelfTest = false`**. Для «альбомной» ориентации см. issue #3804 (`TFT_WIDTH`/`TFT_HEIGHT` и `rotation`) — у нас: **`kDisplayRotation`** в `Config.h`.
+
 ## Стек
 
 - **MCU:** ATmega328P (Nano)

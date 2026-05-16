@@ -24,6 +24,10 @@ private:
   Adafruit_ST7789 tft_;
 
   void backlightOn();
+  void backlightSet(bool on);
+  void probeBacklightPin();
+  void initDisplayHardware();
+  void runBootSelfTest();
   static void formatFloat(char *buf, size_t bufSize, float value, uint8_t width, uint8_t prec);
 };
 
