@@ -60,7 +60,7 @@ private:
   unsigned long latEdgeT0Us_{0};
 
   uint16_t latThrLow_{0};
-  uint16_t latThrHigh_{cfg::kAdcMaxCodeU};
+  uint16_t latThrHigh_{1023};
 
   uint16_t latSampleCount_{0};
   uint32_t latSumUs_{0};

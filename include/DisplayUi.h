@@ -6,7 +6,7 @@
 
 #include "Config.h"
 
-// Слой представления: ST7789 через Adafruit GFX (SPI, STM32F103 + Adafruit).
+// Слой представления: ST7789 через Adafruit GFX (лёгкий стек для AVR + SPI).
 namespace ui {
 
 class DisplayUi {
@@ -26,8 +26,7 @@ private:
   void backlightOn();
   void backlightSet(bool on);
   void probeBacklightPin();
-  void initDisplayHardware(uint8_t cfgSpiMode, uint8_t rotation, bool invertColors);
-  void runBootProfileSweep();
+  void initDisplayHardware();
   void runBootSelfTest();
   static void formatFloat(char *buf, size_t bufSize, float value, uint8_t width, uint8_t prec);
 };
