@@ -1,5 +1,48 @@
-.pio
+# --- PlatformIO ---
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# --- Сборка (вне PlatformIO, если появится) ---
+build/
+dist/
+
+# --- VS Code / Cursor (локальные настройки и индексы) ---
 .vscode/.browse.c_cpp.db*
 .vscode/c_cpp_properties.json
 .vscode/launch.json
-.vscode/ipch
+.vscode/ipch/
+*.code-workspace
+
+# Раскомментируйте, если не хотите делиться личными настройками редактора:
+# .vscode/settings.json
+
+# --- JetBrains / CLion ---
+.idea/
+cmake-build-*/
+
+# --- Clangd / LSP ---
+.cache/
+compile_commands.json
+
+# --- Python (скрипты, venv рядом с проектом) ---
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+
+# --- Логи и временные файлы ---
+*.log
+*.tmp
+*.temp
+*~
+*.swp
+*.swo
+
+# --- ОС ---
+.DS_Store
+Thumbs.db
+Desktop.ini
