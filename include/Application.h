@@ -8,21 +8,55 @@
 #include "Config.h"
 #include "DisplayUi.h"
 #include "PhotoSensor.h"
+#include "SerialInput.h"
 
-// Оркестрация режимов приложения: главное меню, калибровка, измерение задержки.
+// Оркестрация режимов приложения: главное меню, калибровка (R/B/ambient),
+// прогрев перед замером, измерение задержки переключения R<->B,
+// итоговый вывод (min/avg/max) и экран ошибки пригодности.
 namespace app {
 
 enum class Phase : uint8_t {
   MainMenu = 0,
-  Calibration,
-  CalibrationDone,
-  LatencyWarmDark,
-  LatencyWarmLit,
-  LatencyBlink,
-  LatencyDone,
+  Calibration,       // Длинная явная калибровка (4 фазы x kCalibPhaseDurationMs)
+  CalibrationDone,   // Экран итогов калибровки + флаг пригодности
+  LatencyWarmup,     // Короткий авто-прогрев (4 фазы x kWarmupPhaseDurationMs)
+  LatencyMeasure,    // Основной замер R<->B
+  LatencyDone,       // Финальный экран (min/avg/max + по направлениям)
+  LatencyAborted,    // Невозможно измерять — экран причины
 };
 
-enum class EdgeWait : uint8_t { None = 0, Low, High };
+// Какое направление пересечения порога ждём после очередного переключения LED.
+enum class EdgeWait : uint8_t {
+  None = 0,
+  ToRed,    // только что включили Red — ждём, что АЦП перешёл «на сторону R»
+  ToBlue,   // только что включили Blue — ждём, что АЦП перешёл «на сторону B»
+};
+
+// Причина отказа от измерения (рассчитывается после сканера 2 фаз).
+enum class AbortReason : uint8_t {
+  None = 0,
+  SpreadLow,     // |cR - cB| мал — цвета не различаются на датчике/в кадре
+  Clipped,       // АЦП упирается в 0 или 1023 (подкрутить подтяжку/яркость)
+  NoData,        // сканер не успел набрать выборки (не должно случаться)
+};
+
+// Данные калибровки. Живут только в RAM, обнуляются при перезапуске.
+// Заполняются как явной калибровкой, так и авто-прогревом перед замером.
+struct CalibData {
+  uint16_t cR{0};             // Среднее АЦП при Red
+  uint16_t cB{0};             // Среднее АЦП при Blue
+
+  uint16_t spreadR{0};        // max - min за фазу (грубая оценка шума)
+  uint16_t spreadB{0};
+
+  uint16_t mid{512};          // (cR + cB) / 2
+  uint16_t tLow{500};         // mid - гистерезис, ограниченное [0, 1023]
+  uint16_t tHigh{524};        // mid + гистерезис, ограниченное [0, 1023]
+  int8_t   dirSign{1};        // sign(cB - cR): +1, если уровень Blue выше Red, иначе -1
+
+  bool        valid{false};   // Прошла ли проверка пригодности
+  AbortReason failReason{AbortReason::None};
+};
 
 class Application {
 public:
@@ -35,51 +69,64 @@ private:
   hw::BicolorLed led_{};
   hw::PhotoSensor photo_{};
   input::ButtonInput button_{};
+  input::SerialInput serialIn_{};
   ui::DisplayUi ui_{};
 
-  // --- Калибровка ---
-  uint8_t calibPhaseIdx_{0};
-  unsigned long calibPhaseStartMs_{0};
-  unsigned long calibLastSampleMs_{0};
-  hw::AdcStats calibAcc_{};
+  // --- Калибровка / прогрев (общий движок 4 фаз) ---
+  CalibData calib_{};
+  uint8_t       scanPhaseIdx_{0};
+  unsigned long scanPhaseStartMs_{0};
+  unsigned long scanLastSampleMs_{0};
+  unsigned long scanLastUiMs_{0};
+  unsigned long scanSamplePeriodMs_{cfg::kCalibSamplePeriodMs};
+  hw::AdcStats  scanAcc_{};
+  bool          scanIsLongCalibration_{false};
 
-  // --- Задержка ---
-  unsigned long latWarmStartMs_{0};
-  unsigned long latWarmLastSampleMs_{0};
-  uint32_t latWarmSum_{0};
-  uint32_t latWarmCnt_{0};
-  uint16_t latDarkAvg_{0};
-  uint16_t latLitAvg_{0};
-
+  // --- Замер задержки ---
   unsigned long latSessionStartMs_{0};
   unsigned long latLastToggleMs_{0};
   unsigned long latLastUiMs_{0};
-  bool latLit_{false};
-
-  EdgeWait latWait_{EdgeWait::None};
+  hw::LedColor  latCurrentColor_{hw::LedColor::Off};
+  EdgeWait      latWait_{EdgeWait::None};
   unsigned long latEdgeT0Us_{0};
 
-  uint16_t latThrLow_{0};
-  uint16_t latThrHigh_{1023};
+  // Раздельная статистика по направлениям + счётчик потерь (таймауты).
+  uint16_t latCountRB_{0};
+  uint32_t latSumUsRB_{0};
+  uint32_t latMinUsRB_{0xFFFFFFFFUL};
+  uint32_t latMaxUsRB_{0};
 
-  uint16_t latSampleCount_{0};
-  uint32_t latSumUs_{0};
-  uint32_t latMinUs_{0};
-  uint32_t latMaxUs_{0};
+  uint16_t latCountBR_{0};
+  uint32_t latSumUsBR_{0};
+  uint32_t latMinUsBR_{0xFFFFFFFFUL};
+  uint32_t latMaxUsBR_{0};
 
+  uint16_t latLost_{0};
+
+  // --- Переходы режимов и обработка ввода ---
   void enterMainMenu();
-  void startCalibration();
-  void tickCalibration();
-  void applyCalibrationLed(uint8_t phaseIndex);
-  void finishCalibration();
-
-  void startLatency();
-  void tickLatency();
-  void finishLatencySuccess();
-  void latencyArmAfterToggle();
-
   void handleGesture(input::ButtonGesture gesture);
-  void recordLatencySample(uint32_t deltaUs);
+
+  // --- Сканер 4 фаз ---
+  void startCalibration();          // явная калибровка (5 с/фаза)
+  void startLatencyWarmup();        // короткий прогрев перед замером
+  void tickScan(unsigned long phaseDurMs);
+  void scanApplyLedForPhase(uint8_t phaseIndex);
+  void scanCommitPhase(uint8_t phaseIndex);
+  void scanFinalize();              // считает mid/thr/dirSign/feasibility
+  void scanNextPhaseOrFinish(unsigned long phaseDurMs);
+
+  // --- Измерение задержки ---
+  void startLatencyMeasure();
+  void tickLatency();
+  void latencyArmAfterToggle();
+  void recordLatencySample(bool wasRedToBlue, uint32_t deltaUs);
+  void finishLatencySuccess();
+  void abortLatency(AbortReason reason);
+
+  // --- Утилиты ---
+  static const __FlashStringHelper* phaseLabel(uint8_t phaseIndex);
+  static const __FlashStringHelper* abortReasonLabel(AbortReason r);
 };
 
 }  // namespace app

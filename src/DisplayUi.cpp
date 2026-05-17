@@ -5,182 +5,34 @@
 namespace ui {
 
 namespace {
-enum LineLayout : int16_t { kMarginX = 2, kLineStep = 9 };
-
-uint8_t resolveSt7789SpiMode() {
-  // В Adafruit_ST7789::init() в SPCR должен попасть **SPI_MODE** из SPI.h. На ATmega328 **SPI_MODE3 = 0x0C**, не число 3.
-  if (cfg::kDisplaySpiDataMode == 3) {
-    return SPI_MODE3;
-  }
-  return SPI_MODE0;
-}
-
-void tuneSpiAfterBegin() {
-#if defined(__AVR__)
-  if (!cfg::kDisplaySpiSlowAvr) {
-    return;
-  }
-  switch (cfg::kDisplayAvrSpiDivider) {
-    case 16:
-      SPI.setClockDivider(SPI_CLOCK_DIV16);
-      break;
-    case 32:
-      SPI.setClockDivider(SPI_CLOCK_DIV32);
-      break;
-    case 64:
-      SPI.setClockDivider(SPI_CLOCK_DIV64);
-      break;
-    case 128:
-      SPI.setClockDivider(SPI_CLOCK_DIV128);
-      break;
-    default:
-      SPI.setClockDivider(SPI_CLOCK_DIV32);
-      break;
-  }
-#endif
-}
+// Левый отступ и шаг строки для шрифта 5x8 (с однопиксельным межсимвольным пробелом).
+constexpr int16_t kMarginX = 0;
+constexpr int16_t kLineStep = 8;
 }  // namespace
 
-DisplayUi::DisplayUi() : tft_(cfg::kPinTftCs, cfg::kPinTftDc, cfg::kPinTftRst) {}
+DisplayUi::DisplayUi()
+    : disp_(static_cast<int16_t>(cfg::kDisplayWidth), static_cast<int16_t>(cfg::kDisplayHeight),
+            &Wire, cfg::kOledResetPin) {}
 
-void DisplayUi::backlightOn() {
-  backlightSet(true);
+void DisplayUi::flush() { disp_.display(); }
+
+void DisplayUi::initOled() {
+  Wire.begin();
+  Wire.setClock(cfg::kOledI2cClockHz);
+  if (!disp_.begin(SSD1306_SWITCHCAPVCC, cfg::kOledI2cAddress7bit)) {
+    // Не хватило RAM под буфер — редко на Nano, но оставляем явный сигнал.
+    Serial.begin(115200);
+    Serial.println(F("SSD1306 begin failed"));
+  }
+  disp_.clearDisplay();
+  disp_.setTextColor(SSD1306_WHITE);
+  disp_.setTextSize(1);
+  disp_.setTextWrap(false);
+  flush();
 }
 
-void DisplayUi::backlightSet(const bool on) {
-  if (cfg::kBacklightHardwiredToGnd) {
-    (void)on;
-    return;
-  }
-  pinMode(cfg::kPinTftBl, OUTPUT);
-  if (cfg::kBacklightUsePwm) {
-    if (on) {
-      const uint8_t v =
-          cfg::kBacklightActiveHigh ? cfg::kBacklightPwm : static_cast<uint8_t>(255 - cfg::kBacklightPwm);
-      analogWrite(cfg::kPinTftBl, v);
-    } else {
-      digitalWrite(cfg::kPinTftBl, cfg::kBacklightActiveHigh ? LOW : HIGH);
-    }
-  } else {
-    const bool level = on ? cfg::kBacklightActiveHigh : !cfg::kBacklightActiveHigh;
-    digitalWrite(cfg::kPinTftBl, level ? HIGH : LOW);
-  }
-}
-
-void DisplayUi::initDisplayHardware() {
-  SPI.begin();
-  tuneSpiAfterBegin();
-  const uint16_t iw = cfg::kDisplayInitNative240x320 ? 240U : cfg::kDisplayWidth;
-  const uint16_t ih = cfg::kDisplayInitNative240x320 ? 320U : cfg::kDisplayHeight;
-  tft_.init(iw, ih, resolveSt7789SpiMode());
-  tft_.setRotation(cfg::kDisplayRotation & 3U);
-  if (cfg::kDisplayInvertColors) {
-    tft_.invertDisplay(true);
-  }
-}
-
-void DisplayUi::probeBacklightPin() {
-  Serial.println(F(""));
-  if (cfg::kBacklightHardwiredToGnd) {
-    Serial.println(F("=== BL на GND с модуля — импульсы с MCU пропущены ==="));
-    return;
-  }
-  Serial.println(F("=== BL only (matrix unchanged) — смотрите смену яркости подсветки ==="));
-  for (uint8_t i = 0; i < cfg::kDisplaySelfTestBlPulses; i++) {
-    Serial.print(F("BL off "));
-    Serial.println(i + 1U);
-    backlightSet(false);
-    delay(static_cast<unsigned int>(cfg::kDisplaySelfTestBlHalfMs));
-    backlightSet(true);
-    delay(static_cast<unsigned int>(cfg::kDisplaySelfTestBlHalfMs));
-  }
-  Serial.println(F("BL steady ON"));
-  backlightOn();
-}
-
-void DisplayUi::runBootSelfTest() {
-  Serial.begin(cfg::kDisplaySelfTestSerialBaud);
-  delay(80);
-
-  Serial.println(F(""));
-  Serial.println(F("======== ST7789 boot self-test ========"));
-  Serial.print(F("UI logical W x H "));
-  Serial.print(cfg::kDisplayWidth);
-  Serial.print(F(" x "));
-  Serial.println(cfg::kDisplayHeight);
-  if (cfg::kDisplayInitNative240x320) {
-    Serial.println(F("init TFT as native 240 x 320 (set false if your glass is only a centered window)."));
-  }
-  Serial.print(F("SPI request cfg kDisplaySpiDataMode="));
-  Serial.print(cfg::kDisplaySpiDataMode);
-  Serial.print(F(" -> Adafruit mode 0x"));
-  Serial.println(resolveSt7789SpiMode(), HEX);
-  Serial.println(F("Инициализация матрицы; в конце самотеста по умолчанию без мигания BL."));
-
-  backlightOn();
-  delay(static_cast<unsigned int>(cfg::kDisplayResetSettleMs));
-
-  Serial.println(F("Init SPI/display..."));
-  initDisplayHardware();
-  if (cfg::kDisplayInvertColors) {
-    Serial.println(F("invertDisplay(true)"));
-  } else {
-    Serial.println(F("invertDisplay(false)"));
-  }
-
-  tft_.fillScreen(ST77XX_BLACK);
-  Serial.println(F("Hold BLACK — должно быть темное поле при включенной подсветке (~не белое)."));
-  delay(static_cast<unsigned int>(cfg::kDisplaySelfTestBlackHoldMs));
-
-  tft_.fillScreen(ST77XX_RED);
-  Serial.println(F("Hold RED ~2s"));
-  delay(static_cast<unsigned int>(cfg::kDisplaySelfTestStepMs));
-
-  tft_.fillScreen(ST77XX_GREEN);
-  Serial.println(F("Hold GREEN ~2s"));
-  delay(static_cast<unsigned int>(cfg::kDisplaySelfTestStepMs));
-
-  tft_.fillScreen(ST77XX_BLUE);
-  Serial.println(F("Hold BLUE ~2s"));
-  delay(static_cast<unsigned int>(cfg::kDisplaySelfTestStepMs));
-
-  tft_.fillScreen(ST77XX_WHITE);
-  Serial.println(F("Hold WHITE ~2s"));
-  delay(static_cast<unsigned int>(cfg::kDisplaySelfTestStepMs));
-
-  tft_.fillScreen(ST77XX_BLACK);
-  Serial.println(F("Hold BLACK again"));
-  delay(static_cast<unsigned int>(cfg::kDisplaySelfTestStepMs));
-
-  // Рамка по фактическому width()/height() после init (для 240×320 — весь экран).
-  tft_.fillScreen(ST77XX_BLACK);
-  {
-    const int16_t gw = static_cast<int16_t>(tft_.width());
-    const int16_t gh = static_cast<int16_t>(tft_.height());
-    tft_.drawFastHLine(0, 0, gw, ST77XX_WHITE);
-    tft_.drawFastHLine(0, gh - 1, gw, ST77XX_WHITE);
-    tft_.drawFastVLine(0, 0, gh, ST77XX_WHITE);
-    tft_.drawFastVLine(gw - 1, 0, gh, ST77XX_WHITE);
-  }
-  Serial.println(F("White 1px frame on black"));
-  delay(static_cast<unsigned int>(cfg::kDisplaySelfTestStepMs));
-
-  if (cfg::kDisplaySelfTestBlProbeAtEnd) {
-    probeBacklightPin();
-  }
-
-  Serial.println(F("Interpret:"));
-  Serial.println(F("- Видны смены BLACK/RED/GREEN/BLUE: матрица и SPI в целом работают."));
-  Serial.println(F("- Нет цветов, только белый экран: чаще всего нет SPI (MOSI D11 SCK D13 CS D10 DC D8 RST D9 GND)."));
-  Serial.println(F("- Поменяйте kDisplaySpiDataMode 0 или 3 (=SPI_MODE3) и kDisplayAvrSpiDivider 64 (медленнее)."));
-  Serial.println(F("- Всё «белое» после fill BLACK: попробуйте kDisplayInvertColors=true (инверсия стекла)."));
-  Serial.println(F("- kDisplayRotation 1..3 если картинка смещена/повёрнута."));
-  Serial.println(F("- Картинка есть: при узком стекле можно kDisplayInitNative240x320=false."));
-  Serial.println(F("========================================"));
-}
-
-void DisplayUi::formatFloat(char *buf, const size_t bufSize, const float value, const uint8_t width,
-                            const uint8_t prec) {
+void DisplayUi::formatFloat(char* buf, const size_t bufSize, const float value,
+                            const uint8_t width, const uint8_t prec) {
   if (buf == nullptr || bufSize == 0U) {
     return;
   }
@@ -190,177 +42,407 @@ void DisplayUi::formatFloat(char *buf, const size_t bufSize, const float value, 
 }
 
 void DisplayUi::begin() {
-  if (cfg::kDisplayBootSelfTest) {
-    runBootSelfTest();
+  Serial.begin(115200);
+  initOled();
+}
+
+// ---------------------------------------------------------------------------
+// Главное меню: подсказки управления и краткое описание.
+// ---------------------------------------------------------------------------
+void DisplayUi::showMainMenu() {
+  // Времена тянем из Config.h, чтобы текст не расходился с фактическими параметрами.
+  const unsigned long calPhaseSec = cfg::kCalibPhaseDurationMs / 1000UL;
+  const unsigned long sessionSec  = cfg::kLatencySessionMs / 1000UL;
+
+  // Дубль в Serial-консоль.
+  Serial.println();
+  Serial.print(F("[MENU]  m=back  c=cal("));
+  Serial.print(cfg::kScanPhaseCount);
+  Serial.print(F("ph x "));
+  Serial.print(calPhaseSec);
+  Serial.print(F("s)  r=run("));
+  Serial.print(sessionSec);
+  Serial.print(F("s, max~"));
+  Serial.print(cfg::kLatencyMaxExpectedMs);
+  Serial.println(F("ms)  h=help"));
+
+  disp_.clearDisplay();
+  disp_.setCursor(kMarginX, 0);
+  disp_.println(F("KRAN  glass2glass"));   // 17 знаков
+  disp_.setCursor(kMarginX, kLineStep);
+  disp_.println(F("tap   = back"));         // 12
+  disp_.setCursor(kMarginX, kLineStep * 2);
+  disp_.println(F("2tap  = CAL R/B"));      // 15
+  disp_.setCursor(kMarginX, kLineStep * 3);
+  disp_.println(F("hold  = MEASURE"));      // 15
+
+  disp_.setCursor(kMarginX, kLineStep * 5);
+  disp_.print(F("cal:  "));
+  disp_.print(cfg::kScanPhaseCount);
+  disp_.print(F("ph x "));
+  disp_.print(calPhaseSec);
+  disp_.println(F("s"));
+
+  disp_.setCursor(kMarginX, kLineStep * 6);
+  disp_.print(F("meas: "));
+  disp_.print(sessionSec);
+  disp_.println(F("s R<->B"));
+
+  disp_.setCursor(kMarginX, kLineStep * 7);
+  disp_.print(F("max ~"));
+  disp_.print(cfg::kLatencyMaxExpectedMs);
+  disp_.println(F("ms"));
+  flush();
+}
+
+// ---------------------------------------------------------------------------
+// Экран длинной калибровки во время прохождения фазы.
+// ---------------------------------------------------------------------------
+void DisplayUi::showCalibrationScan(const uint8_t phaseIndex, const uint8_t phaseTotal,
+                                    const __FlashStringHelper* phaseLabel,
+                                    const uint16_t adcMin, const uint16_t adcMax,
+                                    const uint16_t adcAvg, const uint16_t samples) {
+  const uint16_t sprd =
+      static_cast<uint16_t>(adcMax >= adcMin ? adcMax - adcMin : 0);
+  Serial.print(F("[CAL] phase="));
+  Serial.print(phaseIndex + 1U);
+  Serial.print('/');
+  Serial.print(phaseTotal);
+  Serial.print(' ');
+  Serial.print(phaseLabel);
+  Serial.print(F("  avg="));
+  Serial.print(adcAvg);
+  Serial.print(F(" mn="));
+  Serial.print(adcMin);
+  Serial.print(F(" mx="));
+  Serial.print(adcMax);
+  Serial.print(F(" sprd="));
+  Serial.print(sprd);
+  Serial.print(F(" n="));
+  Serial.println(samples);
+
+  disp_.clearDisplay();
+
+  disp_.setCursor(kMarginX, 0);
+  disp_.print(F("CAL "));
+  disp_.print(phaseIndex + 1U);
+  disp_.print(F("/"));
+  disp_.print(phaseTotal);
+  disp_.print(F("  "));
+  disp_.println(phaseLabel);
+
+  disp_.setCursor(kMarginX, kLineStep);
+  disp_.print(F("adc   "));
+  disp_.println(adcAvg);
+
+  disp_.setCursor(kMarginX, kLineStep * 2);
+  disp_.print(F("mn "));
+  disp_.print(adcMin);
+  disp_.print(F("  mx "));
+  disp_.println(adcMax);
+
+  disp_.setCursor(kMarginX, kLineStep * 3);
+  disp_.print(F("sprd  "));
+  disp_.println(static_cast<uint16_t>(adcMax >= adcMin ? adcMax - adcMin : 0));
+
+  disp_.setCursor(kMarginX, kLineStep * 4);
+  disp_.print(F("n     "));
+  disp_.println(samples);
+
+  disp_.setCursor(kMarginX, kLineStep * 7);
+  disp_.println(F("tap = menu"));
+  flush();
+}
+
+// ---------------------------------------------------------------------------
+// Итог калибровки + флаг пригодности.
+// ---------------------------------------------------------------------------
+void DisplayUi::showCalibrationSummary(const uint16_t cR, const uint16_t cB,
+                                       const uint16_t spreadR, const uint16_t spreadB,
+                                       const int16_t dRB, const bool feasible,
+                                       const __FlashStringHelper* reasonLabel) {
+  Serial.println();
+  Serial.print(F("[CAL_RESULT] R="));
+  Serial.print(cR);
+  Serial.print(F(" +/-"));
+  Serial.print(spreadR);
+  Serial.print(F("  B="));
+  Serial.print(cB);
+  Serial.print(F(" +/-"));
+  Serial.print(spreadB);
+  Serial.print(F("  dRB="));
+  Serial.print(dRB);
+  Serial.print(F("  status="));
+  if (feasible) {
+    Serial.println(F("OK"));
   } else {
-    backlightOn();
-    delay(static_cast<unsigned int>(cfg::kDisplayResetSettleMs));
-    initDisplayHardware();
-    tft_.fillScreen(ST77XX_BLACK);
+    Serial.print(F("FAIL: "));
+    Serial.println(reasonLabel);
   }
 
-  tft_.setTextColor(ST77XX_WHITE);
-  tft_.setTextSize(1);
-  tft_.setTextWrap(true);
+  disp_.clearDisplay();
+
+  disp_.setCursor(kMarginX, 0);
+  disp_.println(F("CAL  RESULT"));
+
+  disp_.setCursor(kMarginX, kLineStep * 2);
+  disp_.print(F("R    "));
+  disp_.print(cR);
+  disp_.print(F(" +/-"));
+  disp_.println(spreadR);
+
+  disp_.setCursor(kMarginX, kLineStep * 3);
+  disp_.print(F("B    "));
+  disp_.print(cB);
+  disp_.print(F(" +/-"));
+  disp_.println(spreadB);
+
+  disp_.setCursor(kMarginX, kLineStep * 4);
+  disp_.print(F("dRB  "));
+  disp_.println(dRB);
+
+  disp_.setCursor(kMarginX, kLineStep * 6);
+  if (feasible) {
+    disp_.println(F("status: OK"));
+  } else {
+    disp_.print(F("FAIL: "));
+    disp_.println(reasonLabel);
+  }
+
+  disp_.setCursor(kMarginX, kLineStep * 7);
+  disp_.println(F("tap = menu"));
+  flush();
 }
 
-void DisplayUi::showMainMenu() {
-  tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
-  tft_.setTextSize(1);
-  int16_t y = 4;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("Latency");
-  y += kLineStep;
-  tft_.drawFastHLine(0, y - 2, cfg::kDisplayWidth, ST77XX_WHITE);
-  tft_.setCursor(kMarginX, y);
-  tft_.println("2glass");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("tap=menu");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("2tap=cal");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("hold3s=T");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("cal RB 5s");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("x4 Vstat");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("lat 15s");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("LED ms");
+// ---------------------------------------------------------------------------
+// Короткий авто-прогрев перед замером.
+// ---------------------------------------------------------------------------
+void DisplayUi::showLatencyWarmup(const uint8_t phaseIndex, const uint8_t phaseTotal,
+                                  const __FlashStringHelper* phaseLabel) {
+  Serial.print(F("[WARMUP] phase="));
+  Serial.print(phaseIndex + 1U);
+  Serial.print('/');
+  Serial.print(phaseTotal);
+  Serial.print(F("  LED="));
+  Serial.println(phaseLabel);
+
+  disp_.clearDisplay();
+
+  disp_.setCursor(kMarginX, 0);
+  disp_.println(F("WARMUP"));
+
+  disp_.setCursor(kMarginX, kLineStep);
+  disp_.print(F("phase "));
+  disp_.print(phaseIndex + 1U);
+  disp_.print(F("/"));
+  disp_.println(phaseTotal);
+
+  disp_.setCursor(kMarginX, kLineStep * 2);
+  disp_.print(F("LED   "));
+  disp_.println(phaseLabel);
+
+  disp_.setCursor(kMarginX, kLineStep * 4);
+  disp_.println(F("checking R/B"));
+  disp_.setCursor(kMarginX, kLineStep * 5);
+  disp_.println(F("levels ..."));
+
+  disp_.setCursor(kMarginX, kLineStep * 7);
+  disp_.println(F("tap = menu"));
+  flush();
 }
 
-void DisplayUi::showCalibrationScreen(const uint8_t phaseIndex, const uint8_t phaseTotal, const float minV,
-                                      const float maxV, const float avgV) {
-  char bufMin[12];
-  char bufMax[12];
-  char bufAvg[12];
-  formatFloat(bufMin, sizeof(bufMin), minV, 4, 2);
-  formatFloat(bufMax, sizeof(bufMax), maxV, 4, 2);
-  formatFloat(bufAvg, sizeof(bufAvg), avgV, 4, 2);
+// ---------------------------------------------------------------------------
+// Невозможно измерять: чёткая причина и диагностика уровней.
+// ---------------------------------------------------------------------------
+void DisplayUi::showLatencyAborted(const __FlashStringHelper* reasonLabel,
+                                   const uint16_t cR, const uint16_t cB, const int16_t dRB) {
+  Serial.println();
+  Serial.print(F("[ABORT] reason="));
+  Serial.print(reasonLabel);
+  Serial.print(F("  R="));
+  Serial.print(cR);
+  Serial.print(F("  B="));
+  Serial.print(cB);
+  Serial.print(F("  dRB="));
+  Serial.println(dRB);
 
-  tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
-  tft_.setTextSize(1);
-  int16_t y = 4;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("CAL");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print(phaseIndex + 1U);
-  tft_.print("/");
-  tft_.println(phaseTotal);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("Mn");
-  tft_.println(bufMin);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("Mx");
-  tft_.println(bufMax);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("Av");
-  tft_.println(bufAvg);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("tap=esc");
+  disp_.clearDisplay();
+
+  disp_.setCursor(kMarginX, 0);
+  disp_.println(F("ABORT  no measure"));
+
+  disp_.setCursor(kMarginX, kLineStep);
+  disp_.print(F("reason: "));
+  disp_.println(reasonLabel);
+
+  disp_.setCursor(kMarginX, kLineStep * 3);
+  disp_.print(F("R    "));
+  disp_.println(cR);
+
+  disp_.setCursor(kMarginX, kLineStep * 4);
+  disp_.print(F("B    "));
+  disp_.println(cB);
+
+  disp_.setCursor(kMarginX, kLineStep * 5);
+  disp_.print(F("dRB  "));
+  disp_.println(dRB);
+
+  disp_.setCursor(kMarginX, kLineStep * 7);
+  disp_.println(F("tap = menu"));
+  flush();
 }
 
-void DisplayUi::showCalibrationFinished() {
-  tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
-  tft_.setTextSize(1);
-  int16_t y = 4;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("CAL OK");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("LED off");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("tap=menu");
-}
-
-void DisplayUi::showLatencyPreparing() {
-  tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
-  tft_.setTextSize(1);
-  int16_t y = 4;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("Wait");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("ADC ref");
-}
-
+// ---------------------------------------------------------------------------
+// Live во время измерения: «mn / av / mx» сразу в мс + два направления.
+// ---------------------------------------------------------------------------
 void DisplayUi::showLatencyLive(const unsigned long elapsedMs, const unsigned long totalMs,
-                                const uint16_t samples) {
-  tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
-  tft_.setTextSize(1);
-  int16_t y = 4;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("LAT run");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("t ");
-  tft_.println(static_cast<float>(elapsedMs) / 1000.0F, 1);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("T ");
-  tft_.println(static_cast<float>(totalMs) / 1000.0F, 1);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("n ");
-  tft_.println(samples);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("tap=esc");
+                                const uint16_t totalCount, const uint16_t lost,
+                                const float minMs, const float avgMs, const float maxMs,
+                                const float avgRBms, const float avgBRms) {
+  Serial.print(F("[LAT] t="));
+  Serial.print(static_cast<float>(elapsedMs) / 1000.0F, 1);
+  Serial.print('/');
+  Serial.print(static_cast<float>(totalMs) / 1000.0F, 1);
+  Serial.print(F("  n="));
+  Serial.print(totalCount);
+  Serial.print(F(" lost="));
+  Serial.print(lost);
+  Serial.print(F("  min="));
+  Serial.print(minMs, 1);
+  Serial.print(F(" avg="));
+  Serial.print(avgMs, 1);
+  Serial.print(F(" max="));
+  Serial.print(maxMs, 1);
+  Serial.print(F("  RB="));
+  Serial.print(avgRBms, 1);
+  Serial.print(F(" BR="));
+  Serial.println(avgBRms, 1);
+
+  char bMin[8];
+  char bAvg[8];
+  char bMax[8];
+  char bRB[8];
+  char bBR[8];
+  formatFloat(bMin, sizeof(bMin), minMs, 5, 1);
+  formatFloat(bAvg, sizeof(bAvg), avgMs, 5, 1);
+  formatFloat(bMax, sizeof(bMax), maxMs, 5, 1);
+  formatFloat(bRB, sizeof(bRB), avgRBms, 5, 1);
+  formatFloat(bBR, sizeof(bBR), avgBRms, 5, 1);
+
+  disp_.clearDisplay();
+
+  // Шапка: текущее/целое время, кол-во выборок, потери.
+  disp_.setCursor(kMarginX, 0);
+  disp_.print(F("LAT "));
+  disp_.print(static_cast<float>(elapsedMs) / 1000.0F, 1);
+  disp_.print(F("/"));
+  disp_.println(static_cast<float>(totalMs) / 1000.0F, 1);
+
+  disp_.setCursor(kMarginX, kLineStep);
+  disp_.print(F("n "));
+  disp_.print(totalCount);
+  disp_.print(F("  lost "));
+  disp_.println(lost);
+
+  // Главное: min / avg / max в миллисекундах.
+  disp_.setCursor(kMarginX, kLineStep * 2);
+  disp_.print(F("min "));
+  disp_.print(bMin);
+  disp_.println(F(" ms"));
+
+  disp_.setCursor(kMarginX, kLineStep * 3);
+  disp_.print(F("avg "));
+  disp_.print(bAvg);
+  disp_.println(F(" ms"));
+
+  disp_.setCursor(kMarginX, kLineStep * 4);
+  disp_.print(F("max "));
+  disp_.print(bMax);
+  disp_.println(F(" ms"));
+
+  // По направлениям — компактно одной строкой.
+  disp_.setCursor(kMarginX, kLineStep * 6);
+  disp_.print(F("RB "));
+  disp_.print(bRB);
+  disp_.print(F("  BR "));
+  disp_.println(bBR);
+
+  disp_.setCursor(kMarginX, kLineStep * 7);
+  disp_.println(F("tap = exit"));
+  flush();
 }
 
-void DisplayUi::showLatencyResult(const float minMs, const float maxMs, const float avgMs,
-                                  const uint16_t samples) {
-  char b1[12];
-  char b2[12];
-  char b3[12];
-  formatFloat(b1, sizeof(b1), minMs, 5, 2);
-  formatFloat(b2, sizeof(b2), maxMs, 5, 2);
-  formatFloat(b3, sizeof(b3), avgMs, 5, 2);
+// ---------------------------------------------------------------------------
+// Финальный экран — самое важное крупно и подписано.
+// ---------------------------------------------------------------------------
+void DisplayUi::showLatencyResult(const float minMs, const float avgMs, const float maxMs,
+                                  const float avgRBms, const float avgBRms,
+                                  const uint16_t totalCount, const uint16_t lost) {
+  // В Serial — крупный блок «GLASS->GLASS» с одним полем на строку,
+  // удобно копировать в протокол испытаний.
+  Serial.println();
+  Serial.println(F("[RESULT] GLASS->GLASS, ms:"));
+  Serial.print(F("  min  = "));
+  Serial.println(minMs, 2);
+  Serial.print(F("  avg  = "));
+  Serial.println(avgMs, 2);
+  Serial.print(F("  max  = "));
+  Serial.println(maxMs, 2);
+  Serial.print(F("  RB av= "));
+  Serial.println(avgRBms, 2);
+  Serial.print(F("  BR av= "));
+  Serial.println(avgBRms, 2);
+  Serial.print(F("  n    = "));
+  Serial.println(totalCount);
+  Serial.print(F("  lost = "));
+  Serial.println(lost);
+  Serial.println();
 
-  tft_.fillScreen(ST77XX_BLACK);
-  tft_.setTextColor(ST77XX_WHITE);
-  tft_.setTextSize(1);
-  int16_t y = 4;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("ms");
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("mn");
-  tft_.println(b1);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("mx");
-  tft_.println(b2);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("av");
-  tft_.println(b3);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.print("n ");
-  tft_.println(samples);
-  y += kLineStep;
-  tft_.setCursor(kMarginX, y);
-  tft_.println("tap=menu");
+  char bMin[8];
+  char bAvg[8];
+  char bMax[8];
+  char bRB[8];
+  char bBR[8];
+  formatFloat(bMin, sizeof(bMin), minMs, 6, 2);
+  formatFloat(bAvg, sizeof(bAvg), avgMs, 6, 2);
+  formatFloat(bMax, sizeof(bMax), maxMs, 6, 2);
+  formatFloat(bRB, sizeof(bRB), avgRBms, 6, 2);
+  formatFloat(bBR, sizeof(bBR), avgBRms, 6, 2);
+
+  disp_.clearDisplay();
+
+  disp_.setCursor(kMarginX, 0);
+  disp_.println(F("GLASS->GLASS  ms"));   // 16
+
+  disp_.setCursor(kMarginX, kLineStep);
+  disp_.print(F("min "));
+  disp_.println(bMin);
+
+  disp_.setCursor(kMarginX, kLineStep * 2);
+  disp_.print(F("avg "));
+  disp_.println(bAvg);
+
+  disp_.setCursor(kMarginX, kLineStep * 3);
+  disp_.print(F("max "));
+  disp_.println(bMax);
+
+  disp_.setCursor(kMarginX, kLineStep * 4);
+  disp_.print(F("RB  "));
+  disp_.println(bRB);
+
+  disp_.setCursor(kMarginX, kLineStep * 5);
+  disp_.print(F("BR  "));
+  disp_.println(bBR);
+
+  disp_.setCursor(kMarginX, kLineStep * 6);
+  disp_.print(F("n="));
+  disp_.print(totalCount);
+  disp_.print(F("  lost="));
+  disp_.println(lost);
+
+  disp_.setCursor(kMarginX, kLineStep * 7);
+  disp_.println(F("tap = menu"));
+  flush();
 }
 
 }  // namespace ui
