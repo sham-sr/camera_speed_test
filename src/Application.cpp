@@ -183,13 +183,35 @@ void Application::scanCommitPhase(const uint8_t phaseIndex) {
   }
 }
 
+namespace {
+
+// Гистерезис Шмитта от разницы уровней R/B: при малом dRB порог ближе к mid.
+int16_t adaptiveHysteresisAdc(const int32_t spreadRB) {
+  if (spreadRB <= 0) {
+    return cfg::kAdaptiveHysteresisMin;
+  }
+  int32_t h = spreadRB / cfg::kAdaptiveHysteresisSpreadDiv;
+  if (h < cfg::kAdaptiveHysteresisMin) {
+    h = cfg::kAdaptiveHysteresisMin;
+  }
+  if (h > cfg::kAdaptiveHysteresisMax) {
+    h = cfg::kAdaptiveHysteresisMax;
+  }
+  return static_cast<int16_t>(h);
+}
+
+}  // namespace
+
 void Application::scanFinalize() {
   // Расчёт порогов Шмитта вокруг середины между уровнями R и B.
   const int32_t cR = calib_.cR;
   const int32_t cB = calib_.cB;
   const int32_t mid = (cR + cB) / 2;
-  int32_t tLow = mid - cfg::kLatencyThresholdHysteresisAdc;
-  int32_t tHigh = mid + cfg::kLatencyThresholdHysteresisAdc;
+  const int32_t spreadRB = (cB >= cR) ? (cB - cR) : (cR - cB);
+  const int16_t hysteresis = adaptiveHysteresisAdc(spreadRB);
+
+  int32_t tLow = mid - hysteresis;
+  int32_t tHigh = mid + hysteresis;
   if (tLow >= tHigh) {
     // Защита от вырождения при очень малом спреде.
     if (tLow > 0) {
@@ -199,12 +221,14 @@ void Application::scanFinalize() {
     }
   }
   calib_.mid = static_cast<uint16_t>(constrain(mid, 0L, 1023L));
+  calib_.hysteresisAdc = static_cast<uint16_t>(hysteresis);
   calib_.tLow = static_cast<uint16_t>(constrain(tLow, 0L, 1023L));
   calib_.tHigh = static_cast<uint16_t>(constrain(tHigh, 0L, 1023L));
   calib_.dirSign = (cB >= cR) ? static_cast<int8_t>(+1) : static_cast<int8_t>(-1);
 
   // Проверка пригодности.
-  const int32_t spreadRB = (cB >= cR) ? (cB - cR) : (cR - cB);
+  const int32_t phaseNoise =
+      static_cast<int32_t>(max(calib_.spreadR, calib_.spreadB));
 
   calib_.failReason = AbortReason::None;
   if (calib_.cR <= cfg::kFeasibleClipLow || calib_.cR >= cfg::kFeasibleClipHigh ||
@@ -212,8 +236,20 @@ void Application::scanFinalize() {
     calib_.failReason = AbortReason::Clipped;
   } else if (spreadRB < cfg::kFeasibleMinSpreadAdc) {
     calib_.failReason = AbortReason::SpreadLow;
+  } else if (spreadRB < phaseNoise + cfg::kFeasibleSpreadAboveNoise) {
+    // Разница цветов не больше шума фазы — уровни «плавают», фронт ненадёжен.
+    calib_.failReason = AbortReason::SpreadLow;
   }
   calib_.valid = (calib_.failReason == AbortReason::None);
+
+  Serial.print(F("[CAL_THRESH] mid="));
+  Serial.print(calib_.mid);
+  Serial.print(F(" H="));
+  Serial.print(calib_.hysteresisAdc);
+  Serial.print(F(" tLo="));
+  Serial.print(calib_.tLow);
+  Serial.print(F(" tHi="));
+  Serial.println(calib_.tHigh);
 }
 
 void Application::scanNextPhaseOrFinish(const unsigned long phaseDurMs) {

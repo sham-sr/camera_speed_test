@@ -21,7 +21,7 @@ void DisplayUi::initOled() {
   Wire.setClock(cfg::kOledI2cClockHz);
   if (!disp_.begin(SSD1306_SWITCHCAPVCC, cfg::kOledI2cAddress7bit)) {
     // Не хватило RAM под буфер — редко на Nano, но оставляем явный сигнал.
-    Serial.begin(115200);
+    // Serial уже поднят в Application::begin() — не вызывать Serial.begin повторно.
     Serial.println(F("SSD1306 begin failed"));
   }
   disp_.clearDisplay();
@@ -42,7 +42,8 @@ void DisplayUi::formatFloat(char* buf, const size_t bufSize, const float value,
 }
 
 void DisplayUi::begin() {
-  Serial.begin(115200);
+  // Serial инициализируется в Application::begin(). Повторный Serial.begin()
+  // сбрасывает TX-буфер UART и обрезает уже поставленный в очередь вывод.
   initOled();
 }
 

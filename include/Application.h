@@ -50,6 +50,7 @@ struct CalibData {
   uint16_t spreadB{0};
 
   uint16_t mid{512};          // (cR + cB) / 2
+  uint16_t hysteresisAdc{8};  // адаптивный H: tLow/tHigh = mid ∓ H
   uint16_t tLow{500};         // mid - гистерезис, ограниченное [0, 1023]
   uint16_t tHigh{524};        // mid + гистерезис, ограниченное [0, 1023]
   int8_t   dirSign{1};        // sign(cB - cR): +1, если уровень Blue выше Red, иначе -1

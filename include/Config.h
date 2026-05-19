@@ -87,12 +87,19 @@ inline constexpr unsigned long kLatencySessionMs =
         ? (kLatencyBlinkHalfPeriodMs * 30UL)
         : 15000UL;
 
-inline constexpr unsigned long kLatencyUiPeriodMs            = 250UL;
-inline constexpr int16_t       kLatencyThresholdHysteresisAdc = 8;
+inline constexpr unsigned long kLatencyUiPeriodMs = 250UL;
+
+// --- Адаптивный гистерезис порога (после калибровки) -------------------------
+// H = clamp(|cR−cB| / kAdaptiveHysteresisSpreadDiv, min, max).
+// При слабом сигнале (dRB≈12…30) H≈2…5; при сильном (dRB≈600) H не выше max.
+inline constexpr int16_t kAdaptiveHysteresisMin = 2;
+inline constexpr int16_t kAdaptiveHysteresisMax = 24;
+inline constexpr int16_t kAdaptiveHysteresisSpreadDiv = 6;
 
 // --- Пригодность измерения --------------------------------------------------
 // Решение «возможно ли измерение» по результатам сканера 2 фаз (только R/B).
-inline constexpr int16_t  kFeasibleMinSpreadAdc = 32;    // |cR - cB|
+inline constexpr int16_t  kFeasibleMinSpreadAdc = 10;   // |cR - cB| (слабый луч на A1)
+inline constexpr int16_t  kFeasibleSpreadAboveNoise = 4;  // dRB > max(sprdR, sprdB) + это
 inline constexpr uint16_t kFeasibleClipLow  = 4;         // cR/cB не должны быть < clipLow
 inline constexpr uint16_t kFeasibleClipHigh = 1019;      // и не > clipHigh
 
