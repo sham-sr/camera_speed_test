@@ -4,11 +4,31 @@
 
 ## Сборка и прошивка
 
+По умолчанию — **новый загрузчик** Optiboot (`nanoatmega328new`, 115200):
+
 ```bash
 pio run -t upload
 ```
 
-При необходимости укажите порт в [`platformio.ini`](platformio.ini) (`upload_port`).
+Старый загрузчик (редко):
+
+```bash
+pio run -e nanoatmega328 -t upload
+```
+
+Порт в [`platformio.ini`](platformio.ini): раскомментируйте `upload_port = /dev/ttyUSB1` (или свой `ttyUSB0` / `ttyACM0`).
+
+### Ошибка `avrdude: stk500_getsync()`
+
+| Причина | Что сделать |
+|--------|-------------|
+| Не тот загрузчик | Сначала `pio run -t upload` (новый). Не помогло → `pio run -e nanoatmega328 -t upload` (старый, 57600). |
+| Порт занят | Закройте Serial Monitor, `screen`, Arduino IDE, `minicom` на этом tty. |
+| Нет прав на tty | `sudo usermod -aG dialout $USER`, перелогиньтесь; или разово `sudo pio run -t upload`. |
+| Не тот кабель/порт | Только **data** USB; в `dmesg` должен быть `ch341` → `ttyUSB*`. |
+| Нужен сброс | В момент «Uploading…» дважды быстро **RESET** на Nano (или удержать RESET, отпустить при старте загрузки). |
+
+После успешной прошивки: `pio device monitor` (115200, как в прошивке).
 
 ## Стек
 
