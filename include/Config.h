@@ -10,46 +10,53 @@ namespace cfg {
 
 // --- Пины (см. pins.md) ----------------------------------------------------
 
-inline constexpr uint8_t kPinButton = 2;     // Кнопка → GND, INPUT_PULLUP
-inline constexpr uint8_t kPinLedA = 4;       // Биколор LED
-inline constexpr uint8_t kPinLedB = 5;
-inline constexpr uint8_t kPinPhotoAdc = A1;  // Фотоприёмник
+static constexpr uint8_t kPinButton = 2;     // Кнопка → GND, INPUT_PULLUP
+static constexpr uint8_t kPinLedA = 4;       // Биколор LED
+static constexpr uint8_t kPinLedB = 5;
+static constexpr uint8_t kPinPhotoAdc = A1;  // Фотоприёмник
 
 // --- OLED SSD1306 I2C (по умолчанию Wire: SDA=A4, SCL=A5 на Nano) ----------
 
-inline constexpr uint8_t kDisplayWidth = 128;
-inline constexpr uint8_t kDisplayHeight = 64;
+// false — OLED не подключён: Wire/I2C не трогаем (нет зависаний на «висящей» шине).
+// true  — модуль на A4/A5; при отсутствии ответа остаётся только Serial.
+static constexpr bool kOledEnabled = true;
+
+static constexpr uint8_t kDisplayWidth = 128;
+static constexpr uint8_t kDisplayHeight = 64;
 
 // Адрес модуля: чаще 0x3C, реже 0x3D (перемычка на плате).
-inline constexpr uint8_t kOledI2cAddress7bit = 0x3C;
+static constexpr uint8_t kOledI2cAddress7bit = 0x3C;
 
 // -1: вывод RST не используется (типичный модуль с общим сбросом).
-inline constexpr int8_t kOledResetPin = -1;
+static constexpr int8_t kOledResetPin = -1;
 
 // Частота I2C, Гц (400 кГц — быстрее обновление; при длинных проводах попробуйте 100000).
-inline constexpr uint32_t kOledI2cClockHz = 400000UL;
+static constexpr uint32_t kOledI2cClockHz = 400000UL;
+
+// Таймаут операций Wire (мкс), если ядро Arduino поддерживает WIRE_HAS_TIMEOUT.
+static constexpr uint32_t kOledWireTimeoutUs = 2500UL;
 
 // Параметры шрифта по умолчанию (5x8) с межсимвольным пикселем: 6x8.
 // На экране 128x64 умещается 21 символ x 8 строк — учитывается при вёрстке UI.
-inline constexpr uint8_t kCharsPerLine = 21;
-inline constexpr uint8_t kLinesPerScreen = 8;
+static constexpr uint8_t kCharsPerLine = 21;
+static constexpr uint8_t kLinesPerScreen = 8;
 
 // --- Опрос и ввод ------------------------------------------------------------
 
-inline constexpr unsigned long kButtonDebounceMs = 45UL;
-inline constexpr unsigned long kDoubleClickMaxGapMs = 420UL;
-inline constexpr unsigned long kLongPressMs = 3000UL;
-inline constexpr unsigned long kShortPressMaxMs = 800UL;
+static constexpr unsigned long kButtonDebounceMs = 45UL;
+static constexpr unsigned long kDoubleClickMaxGapMs = 420UL;
+static constexpr unsigned long kLongPressMs = 3000UL;
+static constexpr unsigned long kShortPressMaxMs = 800UL;
 
 // --- Сканер 2 фаз: общий движок для калибровки и авто-прогрева --------------
 // Порядок фаз: 0 — Red, 1 — Blue. Без Off-фаз: фоновый уровень не требуется,
 // проверка пригодности обходится только по самим R/B (см. ниже).
-inline constexpr uint8_t       kScanPhaseCount = 2;
-inline constexpr unsigned long kCalibPhaseDurationMs = 5000UL;  // длинная калибровка
-inline constexpr unsigned long kCalibSamplePeriodMs  = 15UL;
-inline constexpr unsigned long kWarmupPhaseDurationMs = 500UL;  // короткий авто-прогрев
-inline constexpr unsigned long kWarmupSamplePeriodMs  = 10UL;
-inline constexpr unsigned long kScanUiPeriodMs = 250UL;
+static constexpr uint8_t       kScanPhaseCount = 2;
+static constexpr unsigned long kCalibPhaseDurationMs = 5000UL;  // длинная калибровка
+static constexpr unsigned long kCalibSamplePeriodMs  = 15UL;
+static constexpr unsigned long kWarmupPhaseDurationMs = 500UL;  // короткий авто-прогрев
+static constexpr unsigned long kWarmupSamplePeriodMs  = 10UL;
+static constexpr unsigned long kScanUiPeriodMs = 250UL;
 
 // --- Измерение задержки -----------------------------------------------------
 // В измерении только R<->B (без Off), чтобы стабилизировать AE/AGC камеры
@@ -71,41 +78,41 @@ inline constexpr unsigned long kScanUiPeriodMs = 250UL;
 //     фронта от текущего → алиасинг и ложные выборки.
 //   - Таймаут датчика < полупериода (чтобы освободить ожидание перед сменой LED).
 //   - Сессия — не меньше 15 с И не меньше ~30 переключений (по 15 в каждую сторону).
-inline constexpr unsigned long kLatencyMaxExpectedMs = 500UL;
+static constexpr unsigned long kLatencyMaxExpectedMs = 500UL;
 
 // Полупериод: 1.5x от ожидаемого максимума (запас 50%).
-inline constexpr unsigned long kLatencyBlinkHalfPeriodMs =
+static constexpr unsigned long kLatencyBlinkHalfPeriodMs =
     (kLatencyMaxExpectedMs * 3UL) / 2UL;
 
 // Таймаут датчика: 1.2x от ожидаемого максимума, гарантированно < полупериода.
-inline constexpr unsigned long kLatencySensorTimeoutUs =
+static constexpr unsigned long kLatencySensorTimeoutUs =
     (kLatencyMaxExpectedMs * 12UL / 10UL) * 1000UL;
 
 // Длительность сессии: max(15 с, 30 полных переключений).
-inline constexpr unsigned long kLatencySessionMs =
+static constexpr unsigned long kLatencySessionMs =
     (kLatencyBlinkHalfPeriodMs * 30UL > 15000UL)
         ? (kLatencyBlinkHalfPeriodMs * 30UL)
         : 15000UL;
 
-inline constexpr unsigned long kLatencyUiPeriodMs = 250UL;
+static constexpr unsigned long kLatencyUiPeriodMs = 250UL;
 
 // --- Адаптивный гистерезис порога (после калибровки) -------------------------
 // H = clamp(|cR−cB| / kAdaptiveHysteresisSpreadDiv, min, max).
 // При слабом сигнале (dRB≈12…30) H≈2…5; при сильном (dRB≈600) H не выше max.
-inline constexpr int16_t kAdaptiveHysteresisMin = 2;
-inline constexpr int16_t kAdaptiveHysteresisMax = 24;
-inline constexpr int16_t kAdaptiveHysteresisSpreadDiv = 6;
+static constexpr int16_t kAdaptiveHysteresisMin = 2;
+static constexpr int16_t kAdaptiveHysteresisMax = 24;
+static constexpr int16_t kAdaptiveHysteresisSpreadDiv = 6;
 
 // --- Пригодность измерения --------------------------------------------------
 // Решение «возможно ли измерение» по результатам сканера 2 фаз (только R/B).
-inline constexpr int16_t  kFeasibleMinSpreadAdc = 10;   // |cR - cB| (слабый луч на A1)
-inline constexpr int16_t  kFeasibleSpreadAboveNoise = 4;  // dRB > max(sprdR, sprdB) + это
-inline constexpr uint16_t kFeasibleClipLow  = 4;         // cR/cB не должны быть < clipLow
-inline constexpr uint16_t kFeasibleClipHigh = 1019;      // и не > clipHigh
+static constexpr int16_t  kFeasibleMinSpreadAdc = 10;   // |cR - cB| (слабый луч на A1)
+static constexpr int16_t  kFeasibleSpreadAboveNoise = 4;  // dRB > max(sprdR, sprdB) + это
+static constexpr uint16_t kFeasibleClipLow  = 4;         // cR/cB не должны быть < clipLow
+static constexpr uint16_t kFeasibleClipHigh = 1019;      // и не > clipHigh
 
 // --- АЦП --------------------------------------------------------------------
 
-inline constexpr float kAdcVrefVolts = 5.0F;
-inline constexpr float kAdcMaxCode = 1023.0F;
+static constexpr float kAdcVrefVolts = 5.0F;
+static constexpr float kAdcMaxCode = 1023.0F;
 
 }  // namespace cfg

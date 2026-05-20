@@ -14,21 +14,37 @@ DisplayUi::DisplayUi()
     : disp_(static_cast<int16_t>(cfg::kDisplayWidth), static_cast<int16_t>(cfg::kDisplayHeight),
             &Wire, cfg::kOledResetPin) {}
 
-void DisplayUi::flush() { disp_.display(); }
+void DisplayUi::flush() {
+  if (oledOk_) {
+    disp_.display();
+  }
+}
 
 void DisplayUi::initOled() {
+  oledOk_ = false;
+  if (!cfg::kOledEnabled) {
+    Serial.println(F("[OLED] disabled (kOledEnabled=false) — Serial-only"));
+    return;
+  }
+
   Wire.begin();
+#if defined(WIRE_HAS_TIMEOUT)
+  Wire.setWireTimeout(cfg::kOledWireTimeoutUs);
+#endif
   Wire.setClock(cfg::kOledI2cClockHz);
   if (!disp_.begin(SSD1306_SWITCHCAPVCC, cfg::kOledI2cAddress7bit)) {
-    // Не хватило RAM под буфер — редко на Nano, но оставляем явный сигнал.
-    // Serial уже поднят в Application::begin() — не вызывать Serial.begin повторно.
-    Serial.println(F("SSD1306 begin failed"));
+    // Не хватило RAM или нет ответа по I2C — работаем только через Serial.
+    Serial.println(F("[OLED] SSD1306 not found — Serial-only"));
+    return;
   }
+
+  oledOk_ = true;
   disp_.clearDisplay();
   disp_.setTextColor(SSD1306_WHITE);
   disp_.setTextSize(1);
   disp_.setTextWrap(false);
   flush();
+  Serial.println(F("[OLED] OK"));
 }
 
 void DisplayUi::formatFloat(char* buf, const size_t bufSize, const float value,
@@ -66,6 +82,10 @@ void DisplayUi::showMainMenu() {
   Serial.print(F("s, max~"));
   Serial.print(cfg::kLatencyMaxExpectedMs);
   Serial.println(F("ms)  h=help"));
+
+  if (!oledOk_) {
+    return;
+  }
 
   disp_.clearDisplay();
   disp_.setCursor(kMarginX, 0);
@@ -121,6 +141,10 @@ void DisplayUi::showCalibrationScan(const uint8_t phaseIndex, const uint8_t phas
   Serial.print(sprd);
   Serial.print(F(" n="));
   Serial.println(samples);
+
+  if (!oledOk_) {
+    return;
+  }
 
   disp_.clearDisplay();
 
@@ -181,6 +205,10 @@ void DisplayUi::showCalibrationSummary(const uint16_t cR, const uint16_t cB,
     Serial.println(reasonLabel);
   }
 
+  if (!oledOk_) {
+    return;
+  }
+
   disp_.clearDisplay();
 
   disp_.setCursor(kMarginX, 0);
@@ -227,6 +255,10 @@ void DisplayUi::showLatencyWarmup(const uint8_t phaseIndex, const uint8_t phaseT
   Serial.print(F("  LED="));
   Serial.println(phaseLabel);
 
+  if (!oledOk_) {
+    return;
+  }
+
   disp_.clearDisplay();
 
   disp_.setCursor(kMarginX, 0);
@@ -266,6 +298,10 @@ void DisplayUi::showLatencyAborted(const __FlashStringHelper* reasonLabel,
   Serial.print(cB);
   Serial.print(F("  dRB="));
   Serial.println(dRB);
+
+  if (!oledOk_) {
+    return;
+  }
 
   disp_.clearDisplay();
 
@@ -318,6 +354,10 @@ void DisplayUi::showLatencyLive(const unsigned long elapsedMs, const unsigned lo
   Serial.print(avgRBms, 1);
   Serial.print(F(" BR="));
   Serial.println(avgBRms, 1);
+
+  if (!oledOk_) {
+    return;
+  }
 
   char bMin[8];
   char bAvg[8];
@@ -398,6 +438,10 @@ void DisplayUi::showLatencyResult(const float minMs, const float avgMs, const fl
   Serial.print(F("  lost = "));
   Serial.println(lost);
   Serial.println();
+
+  if (!oledOk_) {
+    return;
+  }
 
   char bMin[8];
   char bAvg[8];

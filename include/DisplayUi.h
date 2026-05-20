@@ -51,6 +51,7 @@ public:
 
 private:
   Adafruit_SSD1306 disp_;
+  bool oledOk_{false};
 
   void flush();
   void initOled();
