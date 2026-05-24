@@ -38,7 +38,7 @@ public:
   void showLatencyAborted(const __FlashStringHelper* reasonLabel,
                           uint16_t cR, uint16_t cB, int16_t dRB);
 
-  // Промежуточный экран измерения с агрегированными значениями.
+  // Промежуточный экран измерения (только OLED; Serial — в showLatencyResult).
   void showLatencyLive(unsigned long elapsedMs, unsigned long totalMs,
                        uint16_t totalCount, uint16_t lost,
                        float minMs, float avgMs, float maxMs,

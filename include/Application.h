@@ -122,6 +122,8 @@ private:
   // --- Измерение задержки ---
   void startLatencyMeasure();
   void tickLatency();
+  void latencyPollEdge();
+  void latencyRefreshLiveUi(unsigned long nowMs);
   void latencyArmAfterToggle();
   void recordLatencySample(bool wasRedToBlue, uint32_t deltaUs);
   void finishLatencySuccess();

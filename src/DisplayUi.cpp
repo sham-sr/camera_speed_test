@@ -340,25 +340,7 @@ void DisplayUi::showLatencyLive(const unsigned long elapsedMs, const unsigned lo
                                 const uint16_t totalCount, const uint16_t lost,
                                 const float minMs, const float avgMs, const float maxMs,
                                 const float avgRBms, const float avgBRms) {
-  Serial.print(F("[LAT] t="));
-  Serial.print(static_cast<float>(elapsedMs) / 1000.0F, 1);
-  Serial.print('/');
-  Serial.print(static_cast<float>(totalMs) / 1000.0F, 1);
-  Serial.print(F("  n="));
-  Serial.print(totalCount);
-  Serial.print(F(" lost="));
-  Serial.print(lost);
-  Serial.print(F("  min="));
-  Serial.print(minMs, 1);
-  Serial.print(F(" avg="));
-  Serial.print(avgMs, 1);
-  Serial.print(F(" max="));
-  Serial.print(maxMs, 1);
-  Serial.print(F("  RB="));
-  Serial.print(avgRBms, 1);
-  Serial.print(F(" BR="));
-  Serial.println(avgBRms, 1);
-
+  // Во время замера Serial не трогаем — 115200 и форматирование дают десятки мс джиттера.
   if (!oledOk_) {
     return;
   }

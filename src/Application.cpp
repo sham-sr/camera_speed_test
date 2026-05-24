@@ -345,62 +345,16 @@ void Application::startLatencyMeasure() {
                       /*avgRBms*/ 0.0F, /*avgBRms*/ 0.0F);
 }
 
-void Application::tickLatency() {
-  const unsigned long nowMs = millis();
-
-  // Конец сессии — итог.
-  if (nowMs - latSessionStartMs_ >= cfg::kLatencySessionMs) {
-    finishLatencySuccess();
-    return;
-  }
-
-  // Обновление UI «вживую» с агрегированными значениями.
-  if (nowMs - latLastUiMs_ >= cfg::kLatencyUiPeriodMs) {
-    latLastUiMs_ = nowMs;
-    const uint16_t totalCount = latCountRB_ + latCountBR_;
-    float minMs = 0.0F;
-    float maxMs = 0.0F;
-    float avgMs = 0.0F;
-    float avgRBms = 0.0F;
-    float avgBRms = 0.0F;
-    if (totalCount > 0U) {
-      const uint32_t totalSumUs = latSumUsRB_ + latSumUsBR_;
-      avgMs = static_cast<float>(totalSumUs) / static_cast<float>(totalCount) / 1000.0F;
-      uint32_t minUsAll = 0xFFFFFFFFUL;
-      uint32_t maxUsAll = 0;
-      if (latCountRB_ > 0U) {
-        if (latMinUsRB_ < minUsAll) minUsAll = latMinUsRB_;
-        if (latMaxUsRB_ > maxUsAll) maxUsAll = latMaxUsRB_;
-      }
-      if (latCountBR_ > 0U) {
-        if (latMinUsBR_ < minUsAll) minUsAll = latMinUsBR_;
-        if (latMaxUsBR_ > maxUsAll) maxUsAll = latMaxUsBR_;
-      }
-      minMs = static_cast<float>(minUsAll) / 1000.0F;
-      maxMs = static_cast<float>(maxUsAll) / 1000.0F;
-    }
-    if (latCountRB_ > 0U) {
-      avgRBms = static_cast<float>(latSumUsRB_) / static_cast<float>(latCountRB_) / 1000.0F;
-    }
-    if (latCountBR_ > 0U) {
-      avgBRms = static_cast<float>(latSumUsBR_) / static_cast<float>(latCountBR_) / 1000.0F;
-    }
-    ui_.showLatencyLive(nowMs - latSessionStartMs_, cfg::kLatencySessionMs,
-                        totalCount, latLost_, minMs, avgMs, maxMs, avgRBms, avgBRms);
-  }
-
-  // Захват пересечения порога после переключения цвета.
-  if (latWait_ != EdgeWait::None) {
+void Application::latencyPollEdge() {
+  for (uint8_t poll = 0; poll < cfg::kLatencyEdgePollBurst; ++poll) {
     const uint16_t adc = photo_.readCode();
     const unsigned long nowUs = micros();
     bool captured = false;
     bool wasRedToBlue = false;
     uint32_t deltaUs = 0;
 
-    // dirSign > 0 означает: уровень Blue выше Red по коду АЦП.
-    //   ToBlue (только что включили Blue) → ждём adc > tHigh.
-    //   ToRed  (только что включили Red)  → ждём adc < tLow.
-    // dirSign < 0 — наоборот.
+    // dirSign > 0: Blue выше Red по АЦП.
+    //   ToBlue → adc > tHigh; ToRed → adc < tLow. dirSign < 0 — наоборот.
     if (latWait_ == EdgeWait::ToBlue) {
       wasRedToBlue = true;
       const bool crossed =
@@ -422,20 +376,76 @@ void Application::tickLatency() {
     if (captured) {
       recordLatencySample(wasRedToBlue, deltaUs);
       latWait_ = EdgeWait::None;
-    } else if (static_cast<uint32_t>(nowUs - latEdgeT0Us_) > cfg::kLatencySensorTimeoutUs) {
-      // Потерянная выборка: не дождались фронта (помеха, моргание света и т.п.).
+      return;
+    }
+    if (static_cast<uint32_t>(nowUs - latEdgeT0Us_) > cfg::kLatencySensorTimeoutUs) {
       latWait_ = EdgeWait::None;
       latLost_++;
+      return;
     }
   }
+}
 
-  // Переключение цвета по половине периода.
+void Application::latencyRefreshLiveUi(const unsigned long nowMs) {
+  latLastUiMs_ = nowMs;
+  const uint16_t totalCount = latCountRB_ + latCountBR_;
+  float minMs = 0.0F;
+  float maxMs = 0.0F;
+  float avgMs = 0.0F;
+  float avgRBms = 0.0F;
+  float avgBRms = 0.0F;
+  if (totalCount > 0U) {
+    const uint32_t totalSumUs = latSumUsRB_ + latSumUsBR_;
+    avgMs = static_cast<float>(totalSumUs) / static_cast<float>(totalCount) / 1000.0F;
+    uint32_t minUsAll = 0xFFFFFFFFUL;
+    uint32_t maxUsAll = 0;
+    if (latCountRB_ > 0U) {
+      if (latMinUsRB_ < minUsAll) minUsAll = latMinUsRB_;
+      if (latMaxUsRB_ > maxUsAll) maxUsAll = latMaxUsRB_;
+    }
+    if (latCountBR_ > 0U) {
+      if (latMinUsBR_ < minUsAll) minUsAll = latMinUsBR_;
+      if (latMaxUsBR_ > maxUsAll) maxUsAll = latMaxUsBR_;
+    }
+    minMs = static_cast<float>(minUsAll) / 1000.0F;
+    maxMs = static_cast<float>(maxUsAll) / 1000.0F;
+  }
+  if (latCountRB_ > 0U) {
+    avgRBms = static_cast<float>(latSumUsRB_) / static_cast<float>(latCountRB_) / 1000.0F;
+  }
+  if (latCountBR_ > 0U) {
+    avgBRms = static_cast<float>(latSumUsBR_) / static_cast<float>(latCountBR_) / 1000.0F;
+  }
+  ui_.showLatencyLive(nowMs - latSessionStartMs_, cfg::kLatencySessionMs,
+                      totalCount, latLost_, minMs, avgMs, maxMs, avgRBms, avgBRms);
+}
+
+void Application::tickLatency() {
+  const unsigned long nowMs = millis();
+
+  if (nowMs - latSessionStartMs_ >= cfg::kLatencySessionMs) {
+    finishLatencySuccess();
+    return;
+  }
+
+  // 1) Расписание LED — до опроса датчика, чтобы фаза не съезжала из-за UI.
   if (nowMs - latLastToggleMs_ >= cfg::kLatencyBlinkHalfPeriodMs) {
     latLastToggleMs_ = nowMs;
     latCurrentColor_ =
         (latCurrentColor_ == hw::LedColor::Red) ? hw::LedColor::Blue : hw::LedColor::Red;
     led_.set(latCurrentColor_);
     latencyArmAfterToggle();
+  }
+
+  // 2) Критический путь: только АЦП + micros(), без OLED и Serial.
+  if (latWait_ != EdgeWait::None) {
+    latencyPollEdge();
+    return;
+  }
+
+  // 3) OLED между окнами ожидания фронта (как tickScan: сначала датчик, потом UI).
+  if (nowMs - latLastUiMs_ >= cfg::kLatencyUiPeriodMs) {
+    latencyRefreshLiveUi(nowMs);
   }
 }
 

@@ -104,6 +104,9 @@ static constexpr unsigned long kLatencySessionMs =
 
 static constexpr unsigned long kLatencyUiPeriodMs = 250UL;
 
+// Сколько подряд читать АЦП за один проход loop() пока ждём фронт (без UI/Serial).
+static constexpr uint8_t kLatencyEdgePollBurst = 8U;
+
 // --- Адаптивный гистерезис порога (после калибровки) -------------------------
 // H = clamp(|cR−cB| / kAdaptiveHysteresisSpreadDiv, min, max).
 // При слабом сигнале (dRB≈12…30) H≈2…5; при сильном (dRB≈600) H не выше max.
