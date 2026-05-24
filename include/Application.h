@@ -10,16 +10,16 @@
 #include "PhotoSensor.h"
 #include "SerialInput.h"
 
-// Оркестрация режимов приложения: главное меню, калибровка (R/B/ambient),
+// Оркестрация режимов приложения: главное меню, калибровка (R/B),
 // прогрев перед замером, измерение задержки переключения R<->B,
 // итоговый вывод (min/avg/max) и экран ошибки пригодности.
 namespace app {
 
 enum class Phase : uint8_t {
   MainMenu = 0,
-  Calibration,       // Длинная явная калибровка (4 фазы x kCalibPhaseDurationMs)
+  Calibration,       // Длинная явная калибровка (2 фазы x kCalibPhaseDurationMs)
   CalibrationDone,   // Экран итогов калибровки + флаг пригодности
-  LatencyWarmup,     // Короткий авто-прогрев (4 фазы x kWarmupPhaseDurationMs)
+  LatencyWarmup,     // Короткий авто-прогрев (2 фазы x kWarmupPhaseDurationMs)
   LatencyMeasure,    // Основной замер R<->B
   LatencyDone,       // Финальный экран (min/avg/max + по направлениям)
   LatencyAborted,    // Невозможно измерять — экран причины
@@ -73,7 +73,7 @@ private:
   input::SerialInput serialIn_{};
   ui::DisplayUi ui_{};
 
-  // --- Калибровка / прогрев (общий движок 4 фаз) ---
+  // --- Калибровка / прогрев (общий движок 2 фаз: Red, Blue) ---
   CalibData calib_{};
   uint8_t       scanPhaseIdx_{0};
   unsigned long scanPhaseStartMs_{0};
@@ -110,8 +110,8 @@ private:
   void enterMainMenu();
   void handleGesture(input::ButtonGesture gesture);
 
-  // --- Сканер 4 фаз ---
-  void startCalibration();          // явная калибровка (5 с/фаза)
+  // --- Сканер 2 фаз ---
+  void startCalibration();          // явная калибровка (kCalibPhaseDurationMs/фаза)
   void startLatencyWarmup();        // короткий прогрев перед замером
   void tickScan(unsigned long phaseDurMs);
   void scanApplyLedForPhase(uint8_t phaseIndex);
@@ -128,6 +128,16 @@ private:
   void recordLatencySample(bool wasRedToBlue, uint32_t deltaUs);
   void finishLatencySuccess();
   void abortLatency(AbortReason reason);
+
+  struct LatencyStats {
+    uint16_t totalCount{0};
+    float minMs{0.0F};
+    float avgMs{0.0F};
+    float maxMs{0.0F};
+    float avgRBms{0.0F};
+    float avgBRms{0.0F};
+  };
+  LatencyStats computeLatencyStats_() const;
 
   // --- Утилиты ---
   static const __FlashStringHelper* phaseLabel(uint8_t phaseIndex);

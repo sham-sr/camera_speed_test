@@ -135,6 +135,8 @@ OLED и кнопка — опциональны.
 pio run -t upload
 ```
 
+Перед записью прошивки выполняется **очистка flash** (`upload_flags = -e` в [`platformio.ini`](platformio.ini)): старый код и данные в EEPROM приложения сбрасываются, загрузчик на Nano остаётся. Чтобы ускорить повторные заливки при отладке — закомментируйте `upload_flags` в `platformio.ini`.
+
 Старый загрузчик (редко):
 
 ```bash
@@ -418,7 +420,7 @@ tap = menu
 
 | Поле | Пример | Что значит |
 |---|---|---|
-| `WARMUP` | — | Идёт быстрый авто‑прогрев перед каждым измерением (≈ 1 с суммарно: 2 фазы × `kWarmupPhaseDurationMs = 500 мс`) |
+| `WARMUP` | — | Идёт авто‑прогрев перед каждым измерением (2 фазы × `kWarmupPhaseDurationMs`, по умолчанию 2 × 2500 мс = 5 с) |
 | `phase 1/2` | 1 | Номер фазы сканера 2 фаз |
 | `LED   RED` | RED | Текущий цвет LED в этой фазе (RED / BLUE) |
 | `checking R/B levels …` | — | Идёт измерение уровней и проверка пригодности |
@@ -550,7 +552,7 @@ tap = menu
 |------|------------|
 | [`include/Config.h`](include/Config.h) | Все константы (пины, периоды, пороги пригодности) |
 | [`include/Application.h`](include/Application.h) | Фазы, `CalibData`, оркестрация |
-| [`src/Application.cpp`](src/Application.cpp) | Сканер 4 фаз, измерение R↔B, обработка жестов |
+| [`src/Application.cpp`](src/Application.cpp) | Сканер 2 фаз (R/B), измерение R↔B, обработка жестов |
 | [`include/DisplayUi.h`](include/DisplayUi.h), [`src/DisplayUi.cpp`](src/DisplayUi.cpp) | Все экраны под 21×8 |
 | [`include/BicolorLed.h`](include/BicolorLed.h), [`src/BicolorLed.cpp`](src/BicolorLed.cpp) | Управление биколорным LED (Off/Red/Blue) |
 | [`include/PhotoSensor.h`](include/PhotoSensor.h), [`src/PhotoSensor.cpp`](src/PhotoSensor.cpp) | Опрос АЦП фотоприёмника и накопление статистики |

@@ -76,7 +76,7 @@ void Application::handleGesture(const input::ButtonGesture gesture) {
 }
 
 // ---------------------------------------------------------------------------
-// Сканер 4 фаз: Off / Red / Blue / Off (контроль).
+// Сканер 2 фаз: Red, Blue (без Off).
 // Используется и для длинной калибровки, и для авто-прогрева перед замером.
 // ---------------------------------------------------------------------------
 
@@ -116,18 +116,7 @@ void Application::startLatencyWarmup() {
 }
 
 void Application::scanApplyLedForPhase(const uint8_t phaseIndex) {
-  // Порядок: 0 — Red, 1 — Blue. Фаза Off в калибровке не используется.
-  switch (phaseIndex) {
-    case 0:
-      led_.set(hw::LedColor::Red);
-      break;
-    case 1:
-      led_.set(hw::LedColor::Blue);
-      break;
-    default:
-      led_.set(hw::LedColor::Off);
-      break;
-  }
+  led_.set((phaseIndex == 0) ? hw::LedColor::Red : hw::LedColor::Blue);
 }
 
 void Application::tickScan(const unsigned long phaseDurMs) {
@@ -386,38 +375,38 @@ void Application::latencyPollEdge() {
   }
 }
 
-void Application::latencyRefreshLiveUi(const unsigned long nowMs) {
-  latLastUiMs_ = nowMs;
-  const uint16_t totalCount = latCountRB_ + latCountBR_;
-  float minMs = 0.0F;
-  float maxMs = 0.0F;
-  float avgMs = 0.0F;
-  float avgRBms = 0.0F;
-  float avgBRms = 0.0F;
-  if (totalCount > 0U) {
-    const uint32_t totalSumUs = latSumUsRB_ + latSumUsBR_;
-    avgMs = static_cast<float>(totalSumUs) / static_cast<float>(totalCount) / 1000.0F;
-    uint32_t minUsAll = 0xFFFFFFFFUL;
-    uint32_t maxUsAll = 0;
-    if (latCountRB_ > 0U) {
-      if (latMinUsRB_ < minUsAll) minUsAll = latMinUsRB_;
-      if (latMaxUsRB_ > maxUsAll) maxUsAll = latMaxUsRB_;
-    }
-    if (latCountBR_ > 0U) {
-      if (latMinUsBR_ < minUsAll) minUsAll = latMinUsBR_;
-      if (latMaxUsBR_ > maxUsAll) maxUsAll = latMaxUsBR_;
-    }
-    minMs = static_cast<float>(minUsAll) / 1000.0F;
-    maxMs = static_cast<float>(maxUsAll) / 1000.0F;
+Application::LatencyStats Application::computeLatencyStats_() const {
+  LatencyStats s;
+  s.totalCount = latCountRB_ + latCountBR_;
+  if (s.totalCount == 0U) {
+    return s;
   }
+
+  const uint32_t totalSumUs = latSumUsRB_ + latSumUsBR_;
+  s.avgMs = static_cast<float>(totalSumUs) / static_cast<float>(s.totalCount) / 1000.0F;
+
+  uint32_t minUsAll = 0xFFFFFFFFUL;
+  uint32_t maxUsAll = 0;
   if (latCountRB_ > 0U) {
-    avgRBms = static_cast<float>(latSumUsRB_) / static_cast<float>(latCountRB_) / 1000.0F;
+    if (latMinUsRB_ < minUsAll) minUsAll = latMinUsRB_;
+    if (latMaxUsRB_ > maxUsAll) maxUsAll = latMaxUsRB_;
+    s.avgRBms = static_cast<float>(latSumUsRB_) / static_cast<float>(latCountRB_) / 1000.0F;
   }
   if (latCountBR_ > 0U) {
-    avgBRms = static_cast<float>(latSumUsBR_) / static_cast<float>(latCountBR_) / 1000.0F;
+    if (latMinUsBR_ < minUsAll) minUsAll = latMinUsBR_;
+    if (latMaxUsBR_ > maxUsAll) maxUsAll = latMaxUsBR_;
+    s.avgBRms = static_cast<float>(latSumUsBR_) / static_cast<float>(latCountBR_) / 1000.0F;
   }
+  s.minMs = static_cast<float>(minUsAll) / 1000.0F;
+  s.maxMs = static_cast<float>(maxUsAll) / 1000.0F;
+  return s;
+}
+
+void Application::latencyRefreshLiveUi(const unsigned long nowMs) {
+  latLastUiMs_ = nowMs;
+  const LatencyStats s = computeLatencyStats_();
   ui_.showLatencyLive(nowMs - latSessionStartMs_, cfg::kLatencySessionMs,
-                      totalCount, latLost_, minMs, avgMs, maxMs, avgRBms, avgBRms);
+                      s.totalCount, latLost_, s.minMs, s.avgMs, s.maxMs, s.avgRBms, s.avgBRms);
 }
 
 void Application::tickLatency() {
@@ -472,38 +461,8 @@ void Application::finishLatencySuccess() {
   led_.set(hw::LedColor::Off);
   phase_ = Phase::LatencyDone;
 
-  const uint16_t totalCount = latCountRB_ + latCountBR_;
-  float minMs = 0.0F;
-  float maxMs = 0.0F;
-  float avgMs = 0.0F;
-  float avgRBms = 0.0F;
-  float avgBRms = 0.0F;
-
-  if (totalCount > 0U) {
-    const uint32_t totalSumUs = latSumUsRB_ + latSumUsBR_;
-    avgMs = static_cast<float>(totalSumUs) / static_cast<float>(totalCount) / 1000.0F;
-
-    uint32_t minUsAll = 0xFFFFFFFFUL;
-    uint32_t maxUsAll = 0;
-    if (latCountRB_ > 0U) {
-      if (latMinUsRB_ < minUsAll) minUsAll = latMinUsRB_;
-      if (latMaxUsRB_ > maxUsAll) maxUsAll = latMaxUsRB_;
-    }
-    if (latCountBR_ > 0U) {
-      if (latMinUsBR_ < minUsAll) minUsAll = latMinUsBR_;
-      if (latMaxUsBR_ > maxUsAll) maxUsAll = latMaxUsBR_;
-    }
-    minMs = static_cast<float>(minUsAll) / 1000.0F;
-    maxMs = static_cast<float>(maxUsAll) / 1000.0F;
-  }
-  if (latCountRB_ > 0U) {
-    avgRBms = static_cast<float>(latSumUsRB_) / static_cast<float>(latCountRB_) / 1000.0F;
-  }
-  if (latCountBR_ > 0U) {
-    avgBRms = static_cast<float>(latSumUsBR_) / static_cast<float>(latCountBR_) / 1000.0F;
-  }
-
-  ui_.showLatencyResult(minMs, avgMs, maxMs, avgRBms, avgBRms, totalCount, latLost_);
+  const LatencyStats s = computeLatencyStats_();
+  ui_.showLatencyResult(s.minMs, s.avgMs, s.maxMs, s.avgRBms, s.avgBRms, s.totalCount, latLost_);
 }
 
 void Application::abortLatency(const AbortReason reason) {

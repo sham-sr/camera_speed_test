@@ -61,7 +61,7 @@ python phototransistor_screen_test.py
 | Режим | Длительность |
 |-------|----------------|
 | Калибровка | 2× 5000 мс (R, B) |
-| Прогрев | 2× 500 мс (R, B) |
+| Прогрев | 2× `kWarmupPhaseDurationMs` (R, B), по умолчанию 2× 2500 мс |
 | Замер | полупериод 750 мс, сессия 22,5 с |
 
 При изменении `kLatencyMaxExpectedMs` в прошивке те же константы нужно обновить в начале `phototransistor_screen_test.py`.
