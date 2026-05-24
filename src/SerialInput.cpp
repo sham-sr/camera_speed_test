@@ -13,8 +13,8 @@ void SerialInput::printHelp() {
   Serial.println(F("--- KRAN glass2glass: serial console ---"));
   Serial.println(F("commands (one char, case-insensitive):"));
   Serial.println(F("  m  - menu / back / exit any screen"));
-  Serial.println(F("  c  - CALIBRATION (R/B, 2 phases x 5s)"));
-  Serial.println(F("  r  - RUN measurement (warmup + 15s R<->B)"));
+  Serial.println(F("  c  - CALIBRATION (R/B, 2 phases x 5s, robust p10-p90)"));
+  Serial.println(F("  r  - RUN (warmup 2x2.5s + measure R<->B)"));
   Serial.println(F("  h  - this help"));
   Serial.println(F("---"));
 }

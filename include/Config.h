@@ -8,7 +8,7 @@
 
 namespace cfg {
 
-// --- Пины (см. pins.md) ----------------------------------------------------
+// --- Пины (см. README.md, раздел «Распиновка») -----------------------------
 
 static constexpr uint8_t kPinButton = 2;     // Кнопка → GND, INPUT_PULLUP
 static constexpr uint8_t kPinLedA = 4;       // Биколор LED
@@ -53,10 +53,18 @@ static constexpr unsigned long kShortPressMaxMs = 800UL;
 // проверка пригодности обходится только по самим R/B (см. ниже).
 static constexpr uint8_t       kScanPhaseCount = 2;
 static constexpr unsigned long kCalibPhaseDurationMs = 5000UL;  // длинная калибровка
+static constexpr unsigned long kCalibPhaseSettleMs   = 1200UL;  // не учитывать выборки после смены LED
 static constexpr unsigned long kCalibSamplePeriodMs  = 15UL;
-static constexpr unsigned long kWarmupPhaseDurationMs = 500UL;  // короткий авто-прогрев
+static constexpr unsigned long kWarmupPhaseDurationMs = 2500UL; // авто-прогрев перед замером
+static constexpr unsigned long kWarmupPhaseSettleMs   = 700UL;
 static constexpr unsigned long kWarmupSamplePeriodMs  = 10UL;
 static constexpr unsigned long kScanUiPeriodMs = 250UL;
+
+// Робастная оценка уровня/шума по гистограмме АЦП (перцентили, без min/max по выбросам).
+static constexpr uint8_t kAdcHistBins = 64;
+static constexpr uint8_t kHistPercentileLow  = 10;  // «mn» и нижняя граница шума
+static constexpr uint8_t kHistPercentileMid  = 50;  // уровень cR/cB
+static constexpr uint8_t kHistPercentileHigh = 90;  // «mx» и верхняя граница шума
 
 // --- Измерение задержки -----------------------------------------------------
 // В измерении только R<->B (без Off), чтобы стабилизировать AE/AGC камеры

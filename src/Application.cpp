@@ -59,17 +59,13 @@ void Application::handleGesture(const input::ButtonGesture gesture) {
     return;
   }
 
-  // Короткое одиночное — всегда выход в главное меню (или обновление, если уже там).
+  // Короткое одиночное — всегда выход в главное меню (прерывает идущий режим).
   if (gesture == input::ButtonGesture::Single) {
     enterMainMenu();
     return;
   }
 
-  // Остальные жесты — только из главного меню.
-  if (phase_ != Phase::MainMenu) {
-    return;
-  }
-
+  // Калибровка / замер — из меню и с экранов итога; повторный жест перезапускает режим.
   if (gesture == input::ButtonGesture::DoubleShort) {
     startCalibration();
     return;
@@ -84,13 +80,17 @@ void Application::handleGesture(const input::ButtonGesture gesture) {
 // Используется и для длинной калибровки, и для авто-прогрева перед замером.
 // ---------------------------------------------------------------------------
 
+unsigned long Application::scanPhaseSettleMs_() const {
+  return scanIsLongCalibration_ ? cfg::kCalibPhaseSettleMs : cfg::kWarmupPhaseSettleMs;
+}
+
 void Application::startCalibration() {
   phase_ = Phase::Calibration;
   scanIsLongCalibration_ = true;
   scanSamplePeriodMs_ = cfg::kCalibSamplePeriodMs;
   scanPhaseIdx_ = 0;
   scanApplyLedForPhase(0);
-  hw::PhotoSensor::resetStats(&scanAcc_);
+  hw::PhotoSensor::resetHist(&scanHist_);
   const unsigned long now = millis();
   scanPhaseStartMs_ = now;
   scanLastSampleMs_ = now;
@@ -106,7 +106,7 @@ void Application::startLatencyWarmup() {
   scanSamplePeriodMs_ = cfg::kWarmupSamplePeriodMs;
   scanPhaseIdx_ = 0;
   scanApplyLedForPhase(0);
-  hw::PhotoSensor::resetStats(&scanAcc_);
+  hw::PhotoSensor::resetHist(&scanHist_);
   const unsigned long now = millis();
   scanPhaseStartMs_ = now;
   scanLastSampleMs_ = now;
@@ -133,23 +133,26 @@ void Application::scanApplyLedForPhase(const uint8_t phaseIndex) {
 void Application::tickScan(const unsigned long phaseDurMs) {
   const unsigned long nowMs = millis();
 
-  // Опрос АЦП с заданным периодом.
+  const unsigned long phaseElapsedMs = nowMs - scanPhaseStartMs_;
+  const bool pastSettle = phaseElapsedMs >= scanPhaseSettleMs_();
+
+  // Опрос АЦП с заданным периодом (после settle — в гистограмму для робастных порогов).
   if (nowMs - scanLastSampleMs_ >= scanSamplePeriodMs_) {
     scanLastSampleMs_ = nowMs;
     const uint16_t code = photo_.readCode();
-    hw::PhotoSensor::accumulate(&scanAcc_, code);
+    if (pastSettle) {
+      hw::PhotoSensor::accumulateHist(&scanHist_, code);
+    }
   }
 
   // Периодическое обновление UI (только для длинной калибровки — там есть данные).
   if (scanIsLongCalibration_ && (nowMs - scanLastUiMs_ >= cfg::kScanUiPeriodMs)) {
     scanLastUiMs_ = nowMs;
-    const uint16_t samples = static_cast<uint16_t>(scanAcc_.sumCount);
-    const uint16_t avg = (samples > 0U)
-                            ? static_cast<uint16_t>(scanAcc_.sumCodes / scanAcc_.sumCount)
-                            : 0U;
+    const hw::RobustStats rs = hw::PhotoSensor::computeRobust(scanHist_);
     ui_.showCalibrationScan(scanPhaseIdx_, cfg::kScanPhaseCount,
                             phaseLabel(scanPhaseIdx_),
-                            scanAcc_.minCode, scanAcc_.maxCode, avg, samples);
+                            rs.pLow, rs.pHigh, rs.level,
+                            static_cast<uint16_t>(rs.sampleCount));
   }
 
   if (nowMs - scanPhaseStartMs_ < phaseDurMs) {
@@ -162,24 +165,23 @@ void Application::tickScan(const unsigned long phaseDurMs) {
 }
 
 void Application::scanCommitPhase(const uint8_t phaseIndex) {
-  const uint32_t cnt = scanAcc_.sumCount;
-  const uint16_t avg =
-      (cnt > 0U) ? static_cast<uint16_t>(scanAcc_.sumCodes / cnt) : 0U;
-  const uint16_t spread = (scanAcc_.maxCode >= scanAcc_.minCode)
-                              ? static_cast<uint16_t>(scanAcc_.maxCode - scanAcc_.minCode)
-                              : 0U;
+  const hw::RobustStats rs = hw::PhotoSensor::computeRobust(scanHist_);
 
   switch (phaseIndex) {
     case 0:
-      calib_.cR = avg;
-      calib_.spreadR = spread;
+      calib_.cR = rs.level;
+      calib_.spreadR = rs.spread;
       break;
     case 1:
-      calib_.cB = avg;
-      calib_.spreadB = spread;
+      calib_.cB = rs.level;
+      calib_.spreadB = rs.spread;
       break;
     default:
       break;
+  }
+
+  if (rs.sampleCount == 0U) {
+    calib_.failReason = AbortReason::NoData;
   }
 }
 
@@ -230,9 +232,22 @@ void Application::scanFinalize() {
   const int32_t phaseNoise =
       static_cast<int32_t>(max(calib_.spreadR, calib_.spreadB));
 
+  if (calib_.failReason == AbortReason::NoData) {
+    calib_.valid = false;
+    Serial.print(F("[CAL_THRESH] mid="));
+    Serial.print(calib_.mid);
+    Serial.print(F(" H="));
+    Serial.print(calib_.hysteresisAdc);
+    Serial.print(F(" tLo="));
+    Serial.print(calib_.tLow);
+    Serial.print(F(" tHi="));
+    Serial.println(calib_.tHigh);
+    return;
+  }
+
   calib_.failReason = AbortReason::None;
   if (calib_.cR <= cfg::kFeasibleClipLow || calib_.cR >= cfg::kFeasibleClipHigh ||
-      calib_.cB <= cfg::kFeasibleClipLow || calib_.cB >= cfg::kFeasibleClipHigh) {
+             calib_.cB <= cfg::kFeasibleClipLow || calib_.cB >= cfg::kFeasibleClipHigh) {
     calib_.failReason = AbortReason::Clipped;
   } else if (spreadRB < cfg::kFeasibleMinSpreadAdc) {
     calib_.failReason = AbortReason::SpreadLow;
@@ -279,7 +294,7 @@ void Application::scanNextPhaseOrFinish(const unsigned long phaseDurMs) {
 
   // Подготовка следующей фазы сканера.
   scanApplyLedForPhase(scanPhaseIdx_);
-  hw::PhotoSensor::resetStats(&scanAcc_);
+  hw::PhotoSensor::resetHist(&scanHist_);
   const unsigned long now = millis();
   scanPhaseStartMs_ = now;
   scanLastSampleMs_ = now;

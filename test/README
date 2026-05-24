@@ -1,5 +1,0 @@
-This directory is for PlatformIO unit tests.
-
-Documentation for the firmware (calibration, latency logic, build) is in the project root: [README.md](../README.md).
-
-PlatformIO testing: https://docs.platformio.org/en/latest/advanced/unit-testing/index.html

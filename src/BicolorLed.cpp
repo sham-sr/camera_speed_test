@@ -9,7 +9,7 @@ void BicolorLed::begin() {
 }
 
 void BicolorLed::set(LedColor c) {
-  // По таблице из pins.md: противоположные уровни создают ток в одном или другом направлении.
+  // По таблице из README (раздел «Распиновка»): противоположные уровни создают ток в одном или другом направлении.
   switch (c) {
     case LedColor::Red:
       drivePins(true, false);

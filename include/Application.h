@@ -46,7 +46,7 @@ struct CalibData {
   uint16_t cR{0};             // Среднее АЦП при Red
   uint16_t cB{0};             // Среднее АЦП при Blue
 
-  uint16_t spreadR{0};        // max - min за фазу (грубая оценка шума)
+  uint16_t spreadR{0};        // p90 - p10 за фазу (робастный шум, после settle)
   uint16_t spreadB{0};
 
   uint16_t mid{512};          // (cR + cB) / 2
@@ -80,8 +80,10 @@ private:
   unsigned long scanLastSampleMs_{0};
   unsigned long scanLastUiMs_{0};
   unsigned long scanSamplePeriodMs_{cfg::kCalibSamplePeriodMs};
-  hw::AdcStats  scanAcc_{};
+  hw::AdcHist   scanHist_{};
   bool          scanIsLongCalibration_{false};
+
+  unsigned long scanPhaseSettleMs_() const;
 
   // --- Замер задержки ---
   unsigned long latSessionStartMs_{0};

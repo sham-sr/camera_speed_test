@@ -69,6 +69,8 @@ void DisplayUi::begin() {
 void DisplayUi::showMainMenu() {
   // Времена тянем из Config.h, чтобы текст не расходился с фактическими параметрами.
   const unsigned long calPhaseSec = cfg::kCalibPhaseDurationMs / 1000UL;
+  const unsigned long warmupSec =
+      (cfg::kWarmupPhaseDurationMs * cfg::kScanPhaseCount) / 1000UL;
   const unsigned long sessionSec  = cfg::kLatencySessionMs / 1000UL;
 
   // Дубль в Serial-консоль.
@@ -77,7 +79,9 @@ void DisplayUi::showMainMenu() {
   Serial.print(cfg::kScanPhaseCount);
   Serial.print(F("ph x "));
   Serial.print(calPhaseSec);
-  Serial.print(F("s)  r=run("));
+  Serial.print(F("s)  r=run(warm "));
+  Serial.print(warmupSec);
+  Serial.print(F("s+meas "));
   Serial.print(sessionSec);
   Serial.print(F("s, max~"));
   Serial.print(cfg::kLatencyMaxExpectedMs);
@@ -239,7 +243,7 @@ void DisplayUi::showCalibrationSummary(const uint16_t cR, const uint16_t cB,
   }
 
   disp_.setCursor(kMarginX, kLineStep * 7);
-  disp_.println(F("tap = menu"));
+  disp_.println(F("2tap CAL  hold RUN"));
   flush();
 }
 
@@ -325,7 +329,7 @@ void DisplayUi::showLatencyAborted(const __FlashStringHelper* reasonLabel,
   disp_.println(dRB);
 
   disp_.setCursor(kMarginX, kLineStep * 7);
-  disp_.println(F("tap = menu"));
+  disp_.println(F("2tap CAL  hold RUN"));
   flush();
 }
 
@@ -486,7 +490,7 @@ void DisplayUi::showLatencyResult(const float minMs, const float avgMs, const fl
   disp_.println(lost);
 
   disp_.setCursor(kMarginX, kLineStep * 7);
-  disp_.println(F("tap = menu"));
+  disp_.println(F("2tap CAL  hold RUN"));
   flush();
 }
 
