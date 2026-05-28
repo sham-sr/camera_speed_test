@@ -1,4 +1,4 @@
-# camera_speed_test
+# fpv_g2g_latency
 
 **Languages:** **English** (this page) · [Русский](README.md)
 
