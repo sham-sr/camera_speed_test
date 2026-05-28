@@ -1,9 +1,13 @@
 # Тесты и вспомогательные утилиты
 
+**Languages:** [English](README.en.md) · **Русский** (this page)
+
+---
+
 ## PlatformIO unit tests
 
 Каталог `test/` — для [unit-тестов PlatformIO](https://docs.platformio.org/en/latest/advanced/unit-testing/index.html).  
-Прошивка, калибровка и замер задержки: [README.md](../README.md) в корне репозитория.
+Прошивка, калибровка и замер задержки: [README.md](../README.md) ([English](../README.en.md)) в корне репозитория.
 
 ---
 

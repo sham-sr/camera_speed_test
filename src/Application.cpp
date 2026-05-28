@@ -321,6 +321,7 @@ void Application::startLatencyMeasure() {
   latSessionStartMs_ = now;
   latLastToggleMs_ = now;
   latLastUiMs_ = now;
+  latLastSerialMs_ = now;
 
   latCountRB_ = 0;
   latSumUsRB_ = 0;
@@ -354,8 +355,24 @@ void Application::tickLatency() {
     return;
   }
 
-  // Обновление UI «вживую» с агрегированными значениями.
-  if (nowMs - latLastUiMs_ >= cfg::kLatencyUiPeriodMs) {
+  // 1) Фотодатчик — первым. Пока ждём фронт, UI/Serial не трогаем (I2C/Serial блокируют loop).
+  if (latWait_ != EdgeWait::None) {
+    for (uint8_t n = 0; n < cfg::kLatencySensorPollsPerLoop && latWait_ != EdgeWait::None; ++n) {
+      latencyPollSensor();
+    }
+  }
+
+  // 2) Переключение LED по половине периода.
+  if (nowMs - latLastToggleMs_ >= cfg::kLatencyBlinkHalfPeriodMs) {
+    latLastToggleMs_ = nowMs;
+    latCurrentColor_ =
+        (latCurrentColor_ == hw::LedColor::Red) ? hw::LedColor::Blue : hw::LedColor::Red;
+    led_.set(latCurrentColor_);
+    latencyArmAfterToggle();
+  }
+
+  // 3) UI/Serial — только между фронтами; Serial реже OLED.
+  if (latWait_ == EdgeWait::None && nowMs - latLastUiMs_ >= cfg::kLatencyUiPeriodMs) {
     latLastUiMs_ = nowMs;
     const uint16_t totalCount = latCountRB_ + latCountBR_;
     float minMs = 0.0F;
@@ -385,57 +402,53 @@ void Application::tickLatency() {
     if (latCountBR_ > 0U) {
       avgBRms = static_cast<float>(latSumUsBR_) / static_cast<float>(latCountBR_) / 1000.0F;
     }
+    const bool logSerial = (nowMs - latLastSerialMs_ >= cfg::kLatencySerialPeriodMs);
+    if (logSerial) {
+      latLastSerialMs_ = nowMs;
+    }
     ui_.showLatencyLive(nowMs - latSessionStartMs_, cfg::kLatencySessionMs,
-                        totalCount, latLost_, minMs, avgMs, maxMs, avgRBms, avgBRms);
+                        totalCount, latLost_, minMs, avgMs, maxMs, avgRBms, avgBRms,
+                        logSerial);
+  }
+}
+
+void Application::latencyPollSensor() {
+  if (latWait_ == EdgeWait::None) {
+    return;
   }
 
-  // Захват пересечения порога после переключения цвета.
-  if (latWait_ != EdgeWait::None) {
-    const uint16_t adc = photo_.readCode();
-    const unsigned long nowUs = micros();
-    bool captured = false;
-    bool wasRedToBlue = false;
-    uint32_t deltaUs = 0;
+  const uint16_t adc = photo_.readCode();
+  const unsigned long nowUs = micros();
+  bool captured = false;
+  bool wasRedToBlue = false;
+  uint32_t deltaUs = 0;
 
-    // dirSign > 0 означает: уровень Blue выше Red по коду АЦП.
-    //   ToBlue (только что включили Blue) → ждём adc > tHigh.
-    //   ToRed  (только что включили Red)  → ждём adc < tLow.
-    // dirSign < 0 — наоборот.
-    if (latWait_ == EdgeWait::ToBlue) {
-      wasRedToBlue = true;
-      const bool crossed =
-          (calib_.dirSign > 0) ? (adc > calib_.tHigh) : (adc < calib_.tLow);
-      if (crossed) {
-        deltaUs = static_cast<uint32_t>(nowUs - latEdgeT0Us_);
-        captured = true;
-      }
-    } else {  // EdgeWait::ToRed
-      wasRedToBlue = false;
-      const bool crossed =
-          (calib_.dirSign > 0) ? (adc < calib_.tLow) : (adc > calib_.tHigh);
-      if (crossed) {
-        deltaUs = static_cast<uint32_t>(nowUs - latEdgeT0Us_);
-        captured = true;
-      }
+  // dirSign > 0: уровень Blue выше Red по коду АЦП.
+  //   ToBlue → ждём adc > tHigh; ToRed → ждём adc < tLow. dirSign < 0 — наоборот.
+  if (latWait_ == EdgeWait::ToBlue) {
+    wasRedToBlue = true;
+    const bool crossed =
+        (calib_.dirSign > 0) ? (adc > calib_.tHigh) : (adc < calib_.tLow);
+    if (crossed) {
+      deltaUs = static_cast<uint32_t>(nowUs - latEdgeT0Us_);
+      captured = true;
     }
-
-    if (captured) {
-      recordLatencySample(wasRedToBlue, deltaUs);
-      latWait_ = EdgeWait::None;
-    } else if (static_cast<uint32_t>(nowUs - latEdgeT0Us_) > cfg::kLatencySensorTimeoutUs) {
-      // Потерянная выборка: не дождались фронта (помеха, моргание света и т.п.).
-      latWait_ = EdgeWait::None;
-      latLost_++;
+  } else {  // EdgeWait::ToRed
+    wasRedToBlue = false;
+    const bool crossed =
+        (calib_.dirSign > 0) ? (adc < calib_.tLow) : (adc > calib_.tHigh);
+    if (crossed) {
+      deltaUs = static_cast<uint32_t>(nowUs - latEdgeT0Us_);
+      captured = true;
     }
   }
 
-  // Переключение цвета по половине периода.
-  if (nowMs - latLastToggleMs_ >= cfg::kLatencyBlinkHalfPeriodMs) {
-    latLastToggleMs_ = nowMs;
-    latCurrentColor_ =
-        (latCurrentColor_ == hw::LedColor::Red) ? hw::LedColor::Blue : hw::LedColor::Red;
-    led_.set(latCurrentColor_);
-    latencyArmAfterToggle();
+  if (captured) {
+    recordLatencySample(wasRedToBlue, deltaUs);
+    latWait_ = EdgeWait::None;
+  } else if (static_cast<uint32_t>(nowUs - latEdgeT0Us_) > cfg::kLatencySensorTimeoutUs) {
+    latWait_ = EdgeWait::None;
+    latLost_++;
   }
 }
 

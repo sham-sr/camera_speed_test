@@ -89,6 +89,7 @@ private:
   unsigned long latSessionStartMs_{0};
   unsigned long latLastToggleMs_{0};
   unsigned long latLastUiMs_{0};
+  unsigned long latLastSerialMs_{0};
   hw::LedColor  latCurrentColor_{hw::LedColor::Off};
   EdgeWait      latWait_{EdgeWait::None};
   unsigned long latEdgeT0Us_{0};
@@ -123,6 +124,7 @@ private:
   void startLatencyMeasure();
   void tickLatency();
   void latencyArmAfterToggle();
+  void latencyPollSensor();
   void recordLatencySample(bool wasRedToBlue, uint32_t deltaUs);
   void finishLatencySuccess();
   void abortLatency(AbortReason reason);
