@@ -42,7 +42,8 @@ public:
   void showLatencyLive(unsigned long elapsedMs, unsigned long totalMs,
                        uint16_t totalCount, uint16_t lost,
                        float minMs, float avgMs, float maxMs,
-                       float avgRBms, float avgBRms);
+                       float avgRBms, float avgBRms,
+                       bool logToSerial = false);
 
   // Финальный экран: min / avg / max + по направлениям + n / lost.
   void showLatencyResult(float minMs, float avgMs, float maxMs,

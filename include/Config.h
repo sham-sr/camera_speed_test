@@ -102,7 +102,12 @@ static constexpr unsigned long kLatencySessionMs =
         ? (kLatencyBlinkHalfPeriodMs * 30UL)
         : 15000UL;
 
+// OLED во время замера — только между фронтами (не пока latWait_ активен).
 static constexpr unsigned long kLatencyUiPeriodMs = 250UL;
+// Serial реже UI: блокирующий вывод портит точность, если печатать каждый кадр UI.
+static constexpr unsigned long kLatencySerialPeriodMs = 1000UL;
+// Сколько раз опросить АЦП за один проход loop(), пока ждём фронт.
+static constexpr uint8_t kLatencySensorPollsPerLoop = 8U;
 
 // Сколько подряд читать АЦП за один проход loop() пока ждём фронт (без UI/Serial).
 static constexpr uint8_t kLatencyEdgePollBurst = 8U;
